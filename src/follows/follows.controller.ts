@@ -53,4 +53,21 @@ export class FollowsController {
   ) {
     return this.followsService.unfollowSector(userId, sectorId);
   }
+
+  @Post('users/:targetUserId')
+  followUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('targetUserId', ParseUUIDPipe) targetUserId: string,
+  ) {
+    return this.followsService.followUser(userId, targetUserId);
+  }
+
+  @Delete('users/:targetUserId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  unfollowUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('targetUserId', ParseUUIDPipe) targetUserId: string,
+  ) {
+    return this.followsService.unfollowUser(userId, targetUserId);
+  }
 }

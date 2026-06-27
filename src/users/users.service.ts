@@ -46,6 +46,11 @@ export class UsersService {
     return this.stripPassword(saved);
   }
 
+  async isUsernameAvailable(username: string): Promise<boolean> {
+    const taken = await this.usersRepository.existsBy({ username });
+    return !taken;
+  }
+
   async findOne(id: string): Promise<SafeUser> {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) {

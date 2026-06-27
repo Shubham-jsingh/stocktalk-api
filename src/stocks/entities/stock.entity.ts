@@ -25,6 +25,10 @@ export class Stock {
   @Column({ default: 'NASDAQ' })
   exchange: string;
 
+  @Index()
+  @Column({ name: 'is_favourite', type: 'boolean', default: false })
+  isFavourite: boolean;
+
   @ManyToOne(() => Sector, (sector) => sector.stocks, {
     nullable: true,
     onDelete: 'SET NULL',

@@ -9,9 +9,10 @@ import {
 export enum FollowTargetType {
   STOCK = 'stock',
   SECTOR = 'sector',
+  USER = 'user',
 }
 
-// A single user follows either a stock or a sector. One row per follow.
+// A single user follows a stock, a sector, or another user. One row per follow.
 @Entity('follows')
 @Index(['userId', 'targetType', 'targetId'], { unique: true })
 export class Follow {

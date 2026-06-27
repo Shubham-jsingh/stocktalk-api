@@ -5,6 +5,10 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { Follow } from './follows/entities/follow.entity';
 import { FollowsModule } from './follows/follows.module';
+import { Comment } from './posts/entities/comment.entity';
+import { PostReaction } from './posts/entities/post-reaction.entity';
+import { Post } from './posts/entities/post.entity';
+import { PostsModule } from './posts/posts.module';
 import { Sector } from './stocks/entities/sector.entity';
 import { Stock } from './stocks/entities/stock.entity';
 import { StocksModule } from './stocks/stocks.module';
@@ -23,13 +27,14 @@ import { UsersModule } from './users/users.module';
         username: config.get<string>('DB_USERNAME'),
         password: config.get<string>('DB_PASSWORD'),
         database: config.get<string>('DB_NAME'),
-        entities: [User, Stock, Sector, Follow],
+        entities: [User, Stock, Sector, Follow, Post, PostReaction, Comment],
         synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
       }),
     }),
     UsersModule,
     StocksModule,
     FollowsModule,
+    PostsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

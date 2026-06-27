@@ -11,5 +11,6 @@ import { FollowsService } from './follows.service';
   imports: [TypeOrmModule.forFeature([Follow, User, Stock, Sector])],
   controllers: [FollowsController],
   providers: [FollowsService],
+  exports: [FollowsService],
 })
 export class FollowsModule {}

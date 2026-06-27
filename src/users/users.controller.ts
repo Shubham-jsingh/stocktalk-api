@@ -6,7 +6,9 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
+import { CheckUsernameDto } from './dto/check-username.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
@@ -18,6 +20,15 @@ export class UsersController {
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
+  }
+
+  // Must be declared before the ":id" route so it isn't captured as an id.
+  @Get('check-username')
+  async checkUsername(@Query() query: CheckUsernameDto) {
+    const available = await this.usersService.isUsernameAvailable(
+      query.username,
+    );
+    return { username: query.username, available };
   }
 
   @Get(':id')

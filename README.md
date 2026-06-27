@@ -160,16 +160,30 @@ stocktalk-api running on http://localhost:3000
 | Method & path                                  | Purpose                                  |
 | ---------------------------------------------- | ---------------------------------------- |
 | `POST   /users`                                | Create a user (with profile fields)      |
+| `GET    /users/check-username?username=`       | Check if a username is available         |
 | `GET    /users/:id`                            | Get a user's details                     |
 | `PATCH  /users/:id`                            | Edit a user's profile                    |
 | `GET    /stocks`                               | List all predefined stocks               |
+| `GET    /stocks/favourites`                    | List all favourite stocks                |
 | `GET    /stocks/sectors`                       | List all sectors                         |
 | `GET    /stocks/search?q=`                     | Search stocks (prefix, min 3 chars)      |
-| `GET    /users/:userId/follows`                | List a user's followed stocks + sectors  |
+| `PATCH  /stocks/:id/favourite`                 | Mark/unmark a stock as favourite         |
+| `GET    /users/:userId/follows`                | List a user's followed stocks/sectors/users |
 | `POST   /users/:userId/follows/stocks/:stockId`| Follow a stock                           |
 | `DELETE /users/:userId/follows/stocks/:stockId`| Unfollow a stock                         |
 | `POST   /users/:userId/follows/sectors/:sectorId`| Follow a sector                        |
 | `DELETE /users/:userId/follows/sectors/:sectorId`| Unfollow a sector                      |
+| `POST   /users/:userId/follows/users/:targetUserId`| Follow another user                  |
+| `DELETE /users/:userId/follows/users/:targetUserId`| Unfollow another user                |
+| `POST   /posts`                                | Create a post                            |
+| `GET    /posts?feed=&userId=&page=&limit=`     | Paginated feed (all/following users/sectors) |
+| `GET    /posts/:id`                            | Get a single post                        |
+| `PATCH  /posts/:id`                            | Edit a post (author only)                |
+| `POST   /posts/:postId/like`                   | Like a post                              |
+| `POST   /posts/:postId/dislike`                | Dislike a post                           |
+| `DELETE /posts/:postId/reaction`               | Remove your like/dislike                 |
+| `POST   /posts/:postId/comments`               | Comment, or reply (one level deep)       |
+| `GET    /posts/:postId/comments?page=&limit=`  | List comments with their replies         |
 
 ### Users
 
@@ -203,6 +217,16 @@ Validation rules:
 
 Returns `201 Created` with the user (no password). Errors: `409` (duplicate), `400` (validation).
 
+#### Check username availability — `GET /users/check-username?username=`
+
+```bash
+curl "http://localhost:3000/users/check-username?username=trader_joe"
+# -> {"username":"trader_joe","available":false}
+```
+
+`username` follows the same rules as signup (3–20 chars, letters/numbers/underscore);
+otherwise returns `400`.
+
 #### Get user details — `GET /users/:id`
 
 Returns `200` with the user, or `404` if not found.
@@ -231,27 +255,106 @@ curl http://localhost:3000/stocks/sectors
 
 # Search by symbol or name — requires at least 3 characters
 curl "http://localhost:3000/stocks/search?q=app"   # -> AAPL
+
+# All favourite stocks
+curl http://localhost:3000/stocks/favourites
+
+# Mark / unmark a stock as favourite
+curl -X PATCH http://localhost:3000/stocks/<stockId>/favourite \
+  -H "Content-Type: application/json" \
+  -d '{"isFavourite":true}'
 ```
 
 `GET /stocks/search?q=` returns `400` if `q` is shorter than 3 characters.
+Each stock has an `isFavourite` boolean (default `false`); `GET /stocks/favourites`
+returns only those flagged `true`.
 
 ### Follows
 
 ```bash
-# Follow a stock / sector  (201)
+# Follow a stock / sector / user  (201)
 curl -X POST http://localhost:3000/users/<userId>/follows/stocks/<stockId>
 curl -X POST http://localhost:3000/users/<userId>/follows/sectors/<sectorId>
+curl -X POST http://localhost:3000/users/<userId>/follows/users/<targetUserId>
 
-# List follows -> { "stocks": [...], "sectors": [...] }
+# List follows -> { "stocks": [...], "sectors": [...], "users": [...] }
 curl http://localhost:3000/users/<userId>/follows
 
 # Unfollow  (204 No Content)
 curl -X DELETE http://localhost:3000/users/<userId>/follows/stocks/<stockId>
 curl -X DELETE http://localhost:3000/users/<userId>/follows/sectors/<sectorId>
+curl -X DELETE http://localhost:3000/users/<userId>/follows/users/<targetUserId>
 ```
 
 Following the same target twice is idempotent (returns the existing follow).
-Unknown user/stock/sector returns `404`.
+Unknown user/stock/sector returns `404`; following yourself returns `400`.
+
+### Posts
+
+Posts carry denormalized `likeCount`, `dislikeCount`, and `commentCount` so
+feeds and "how many likes" reads never need aggregate queries.
+
+```bash
+# Create a post (authorId = which user; sectorId optional)
+curl -X POST http://localhost:3000/posts \
+  -H "Content-Type: application/json" \
+  -d '{"authorId":"<userId>","title":"NVDA earnings","body":"Strong quarter.",
+       "imageUrl":"https://img.example.com/n.png",
+       "links":["https://example.com/a"],"sectorId":"<sectorId>"}'
+
+# Get one post
+curl http://localhost:3000/posts/<postId>
+
+# Edit a post — only the author may edit (others get 403). userId = the editor.
+curl -X PATCH http://localhost:3000/posts/<postId> \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"<authorId>","title":"NVDA earnings (edited)"}'
+```
+
+#### Feed (paginated)
+
+`GET /posts?feed=<mode>&userId=<id>&page=1&limit=10`
+
+| `feed` mode          | Returns                                            |
+| -------------------- | -------------------------------------------------- |
+| `all` (default)      | All posts, newest first                            |
+| `following_users`    | Posts by users that `userId` follows               |
+| `following_sectors`  | Posts in sectors that `userId` follows             |
+
+`userId` is required for the two `following_*` modes. Response shape:
+
+```json
+{ "items": [ ... ], "page": 1, "limit": 10, "total": 42, "totalPages": 5 }
+```
+
+### Likes / Dislikes
+
+One reaction per user per post; liking then disliking switches it.
+
+```bash
+curl -X POST   http://localhost:3000/posts/<postId>/like     -H "Content-Type: application/json" -d '{"userId":"<userId>"}'
+curl -X POST   http://localhost:3000/posts/<postId>/dislike  -H "Content-Type: application/json" -d '{"userId":"<userId>"}'
+curl -X DELETE http://localhost:3000/posts/<postId>/reaction -H "Content-Type: application/json" -d '{"userId":"<userId>"}'
+# each returns: { postId, userId, reaction, likeCount, dislikeCount }
+```
+
+### Comments & replies (one level deep)
+
+```bash
+# Top-level comment
+curl -X POST http://localhost:3000/posts/<postId>/comments \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"<userId>","body":"Great call!"}'
+
+# Reply to a top-level comment (pass parentCommentId)
+curl -X POST http://localhost:3000/posts/<postId>/comments \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"<userId>","body":"Thanks!","parentCommentId":"<commentId>"}'
+# Replying to a reply returns 400 (max depth = 1).
+
+# List top-level comments (paginated), each with its replies
+curl "http://localhost:3000/posts/<postId>/comments?page=1&limit=10"
+```
 
 ### Create a user (minimal) with curl
 
@@ -289,13 +392,38 @@ stocktalk-api/
 │   │   ├── stocks.controller.ts     # GET / sectors / search
 │   │   ├── stocks.service.ts        # seeding + queries + search
 │   │   └── stocks.module.ts
-│   └── follows/
+│   ├── follows/
+│   │   ├── entities/
+│   │   │   └── follow.entity.ts     # "follows" (user -> stock|sector|user)
+│   │   ├── follows.controller.ts    # follow / unfollow / list
+│   │   ├── follows.service.ts
+│   │   └── follows.module.ts
+│   └── posts/
 │       ├── entities/
-│       │   └── follow.entity.ts     # "follows" table (user -> stock|sector)
-│       ├── follows.controller.ts    # follow / unfollow / list
-│       ├── follows.service.ts
-│       └── follows.module.ts
+│       │   ├── post.entity.ts           # "posts" (+ denormalized counters)
+│       │   ├── post-reaction.entity.ts  # "post_reactions" (like|dislike)
+│       │   └── comment.entity.ts        # "comments" (self-ref, depth 1)
+│       ├── dto/                         # create/update/feed/reaction/comment
+│       ├── posts.controller.ts          # POST / feed / GET :id / PATCH :id
+│       ├── posts.service.ts             # create, edit-by-owner, feed
+│       ├── reactions.controller.ts      # like / dislike / remove
+│       ├── reactions.service.ts         # reaction + counter maintenance
+│       ├── comments.controller.ts       # comment / reply / list
+│       ├── comments.service.ts          # depth-1 replies + counters
+│       └── posts.module.ts
 └── README.md
+```
+
+### Data model (tables)
+
+```
+users        — accounts + profile
+sectors      — predefined market sectors
+stocks       — predefined tickers (-> sector)
+follows      — polymorphic: a user follows a stock | sector | user
+posts        — author -> user, optional -> sector, like/dislike/comment counts
+post_reactions — one (user, post) row, type = like | dislike
+comments     — post -> comment, optional parent (one level of replies)
 ```
 
 ---

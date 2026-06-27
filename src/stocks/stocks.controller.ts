@@ -1,9 +1,14 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Query,
 } from '@nestjs/common';
+import { SetFavouriteDto } from './dto/set-favourite.dto';
 import { StocksService } from './stocks.service';
 
 @Controller('stocks')
@@ -14,6 +19,12 @@ export class StocksController {
   @Get()
   findAll() {
     return this.stocksService.findAllStocks();
+  }
+
+  // GET /stocks/favourites -> all stocks flagged as favourite
+  @Get('favourites')
+  findFavourites() {
+    return this.stocksService.findFavourites();
   }
 
   // GET /stocks/sectors -> all sectors
@@ -32,5 +43,14 @@ export class StocksController {
       );
     }
     return this.stocksService.searchStocks(term);
+  }
+
+  // PATCH /stocks/:id/favourite  body: { "isFavourite": true }
+  @Patch(':id/favourite')
+  setFavourite(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetFavouriteDto,
+  ) {
+    return this.stocksService.setFavourite(id, dto.isFavourite);
   }
 }

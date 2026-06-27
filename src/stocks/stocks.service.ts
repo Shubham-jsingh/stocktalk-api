@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import { Sector } from './entities/sector.entity';
@@ -61,5 +66,21 @@ export class StocksService implements OnModuleInit {
       order: { symbol: 'ASC' },
       take: 20,
     });
+  }
+
+  findFavourites(): Promise<Stock[]> {
+    return this.stocksRepository.find({
+      where: { isFavourite: true },
+      order: { symbol: 'ASC' },
+    });
+  }
+
+  async setFavourite(id: string, isFavourite: boolean): Promise<Stock> {
+    const stock = await this.stocksRepository.findOne({ where: { id } });
+    if (!stock) {
+      throw new NotFoundException(`Stock ${id} not found`);
+    }
+    stock.isFavourite = isFavourite;
+    return this.stocksRepository.save(stock);
   }
 }
