@@ -9,6 +9,9 @@
 .env
 .env.local
 *.local
+secrets/
+firebase-service-account.json
+gcs-service-account.json
 
 # Logs
 *.log

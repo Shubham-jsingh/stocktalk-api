@@ -29,9 +29,12 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  // The hashed password. Never returned in API responses (see stripPassword in service).
-  @Column()
-  password: string;
+  // Hashed password for email/password sign-up. Null for Firebase-only accounts.
+  @Column({ type: 'varchar', nullable: true })
+  password: string | null;
+
+  @Column({ name: 'firebase_uid', type: 'varchar', unique: true, nullable: true })
+  firebaseUid: string | null;
 
   @Column({ name: 'full_name', type: 'varchar', nullable: true })
   fullName: string | null;

@@ -1,0 +1,46 @@
+# Build and deploy stocktalk-api to Cloud Run.
+# Used later for CI on push to main; also works for manual deploys:
+#   gcloud builds submit --config cloudbuild.yaml
+#
+# Substitutions (override with --substitutions=_REGION=...,_SERVICE=...):
+#   _REGION  default: asia-south1
+#   _SERVICE default: stocktalk-api
+
+substitutions:
+  _REGION: asia-south1
+  _SERVICE: stocktalk-api
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/stocktalk/${_SERVICE}:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/stocktalk/${_SERVICE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/stocktalk/${_SERVICE}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/stocktalk/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/stocktalk/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/stocktalk/${_SERVICE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

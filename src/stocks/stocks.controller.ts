@@ -8,6 +8,7 @@ import {
   Patch,
   Query,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { SetFavouriteDto } from './dto/set-favourite.dto';
 import { StocksService } from './stocks.service';
 
@@ -15,25 +16,25 @@ import { StocksService } from './stocks.service';
 export class StocksController {
   constructor(private readonly stocksService: StocksService) {}
 
-  // GET /stocks  -> all predefined stocks
+  @Public()
   @Get()
   findAll() {
     return this.stocksService.findAllStocks();
   }
 
-  // GET /stocks/favourites -> all stocks flagged as favourite
+  @Public()
   @Get('favourites')
   findFavourites() {
     return this.stocksService.findFavourites();
   }
 
-  // GET /stocks/sectors -> all sectors
+  @Public()
   @Get('sectors')
   findSectors() {
     return this.stocksService.findAllSectors();
   }
 
-  // GET /stocks/search?q=app -> prefix search, requires at least 3 chars
+  @Public()
   @Get('search')
   search(@Query('q') q?: string) {
     const term = (q ?? '').trim();
