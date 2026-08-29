@@ -51,6 +51,58 @@ export class UsersService {
     return !taken;
   }
 
+  async findByEmail(email: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { email } });
+  }
+
+  async findByFirebaseUid(firebaseUid: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { firebaseUid } });
+  }
+
+  async findEntityById(id: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { id } });
+  }
+
+  async createFirebaseUser(data: {
+    email: string;
+    firebaseUid: string;
+    fullName?: string | null;
+    profilePhotoUrl?: string | null;
+  }): Promise<SafeUser> {
+    const username = await this.generateUniqueUsername(data.email);
+
+    const user = this.usersRepository.create({
+      username,
+      email: data.email,
+      firebaseUid: data.firebaseUid,
+      fullName: data.fullName ?? null,
+      profilePhotoUrl: data.profilePhotoUrl ?? null,
+      password: null,
+    });
+
+    const saved = await this.usersRepository.save(user);
+    return this.stripPassword(saved);
+  }
+
+  async linkFirebaseAccount(
+    user: User,
+    data: {
+      firebaseUid: string;
+      fullName?: string | null;
+      profilePhotoUrl?: string | null;
+    },
+  ): Promise<SafeUser> {
+    user.firebaseUid = data.firebaseUid;
+    if (data.fullName && !user.fullName) {
+      user.fullName = data.fullName;
+    }
+    if (data.profilePhotoUrl && !user.profilePhotoUrl) {
+      user.profilePhotoUrl = data.profilePhotoUrl;
+    }
+    const saved = await this.usersRepository.save(user);
+    return this.stripPassword(saved);
+  }
+
   async findOne(id: string): Promise<SafeUser> {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) {
@@ -65,8 +117,6 @@ export class UsersService {
       throw new NotFoundException(`User ${id} not found`);
     }
 
-    // Only apply fields that were actually provided. class-transformer sets
-    // omitted optional fields to `undefined`; assigning those would wipe data.
     for (const [key, value] of Object.entries(updateUserDto)) {
       if (value !== undefined) {
         (user as unknown as Record<string, unknown>)[key] = value;
@@ -74,6 +124,28 @@ export class UsersService {
     }
     const saved = await this.usersRepository.save(user);
     return this.stripPassword(saved);
+  }
+
+  toSafeUser(user: User): SafeUser {
+    return this.stripPassword(user);
+  }
+
+  private async generateUniqueUsername(email: string): Promise<string> {
+    const localPart = email.split('@')[0] ?? 'user';
+    const sanitized =
+      localPart.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_') || 'user';
+    const base = sanitized.slice(0, 15);
+
+    let candidate = base;
+    let suffix = 0;
+
+    while (!(await this.isUsernameAvailable(candidate))) {
+      suffix += 1;
+      const suffixText = `_${suffix}`;
+      candidate = `${base.slice(0, 20 - suffixText.length)}${suffixText}`;
+    }
+
+    return candidate;
   }
 
   private stripPassword(user: User): SafeUser {

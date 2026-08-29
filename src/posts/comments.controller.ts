@@ -7,6 +7,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { CommentsService } from './comments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -15,7 +16,6 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 
-  // Create a comment, or a reply when parentCommentId is provided.
   @Post()
   create(
     @Param('postId', ParseUUIDPipe) postId: string,
@@ -24,7 +24,7 @@ export class CommentsController {
     return this.commentsService.create(postId, dto);
   }
 
-  // List top-level comments (paginated), each with its one-level replies.
+  @Public()
   @Get()
   list(
     @Param('postId', ParseUUIDPipe) postId: string,

@@ -8,6 +8,7 @@ import {
   Post as HttpPost,
   Query,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { CreatePostDto } from './dto/create-post.dto';
 import { FeedQueryDto } from './dto/feed-query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -22,12 +23,13 @@ export class PostsController {
     return this.postsService.create(dto);
   }
 
-  // GET /posts?feed=all|following_users|following_sectors&userId=&page=&limit=
+  @Public()
   @Get()
   feed(@Query() query: FeedQueryDto) {
     return this.postsService.feed(query);
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.postsService.findOne(id);

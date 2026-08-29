@@ -428,6 +428,326 @@ comments     — post -> comment, optional parent (one level of replies)
 
 ---
 
+## Authentication (Firebase + custom JWT)
+
+The Android app signs in with **Firebase Google Sign-In**, sends the Firebase ID token to the backend, and receives a **custom backend JWT** for all protected API calls.
+
+### Environment variables
+
+Add to `.env` (see `.env.example`):
+
+```env
+FIREBASE_CREDENTIALS_PATH=./secrets/firebase-service-account.json
+JWT_SECRET=your-long-random-secret
+JWT_EXPIRATION=7d
+```
+
+Download the Firebase service account JSON from **Firebase Console → Project Settings → Service Accounts → Generate new private key**. Store it at `secrets/firebase-service-account.json` (never commit it).
+
+### `POST /auth/firebase` (public)
+
+Exchange a Firebase ID token for a backend JWT.
+
+**Request**
+
+```json
+{ "idToken": "FIREBASE_ID_TOKEN_FROM_ANDROID" }
+```
+
+**Response**
+
+```json
+{
+  "access_token": "eyJhbG...",
+  "user": {
+    "id": "uuid",
+    "username": "john_doe",
+    "email": "john@gmail.com",
+    "fullName": "John Doe",
+    "profilePhotoUrl": "https://..."
+  }
+}
+```
+
+### `GET /auth/me` (protected)
+
+Returns the currently authenticated user.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Android flow
+
+1. Firebase Google Sign-In on device
+2. `FirebaseAuth.getInstance().currentUser?.getIdToken(true)`
+3. `POST /auth/firebase` with `{ idToken }`
+4. Store `access_token` and send `Authorization: Bearer ...` on every protected request
+
+---
+
+## Image uploads (GCS signed URLs)
+
+Authenticated clients request a **write-only V4 signed URL**, then upload directly to Google Cloud Storage with `PUT` (no file bytes through the API).
+
+### Environment variables
+
+```env
+GCS_BUCKET_NAME=stocktalk-uploads
+GCS_KEYFILE_PATH=./secrets/gcs-service-account.json
+```
+
+Use a GCP service account with **Storage Object Admin** (or a tighter custom role: `storage.objects.create` on the bucket). The same Firebase service account can be used if it has bucket permissions, or create a dedicated GCS key.
+
+### `POST /storage/signed-url` (protected)
+
+**Request**
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "fileName": "photo.jpg",
+  "contentType": "image/jpeg"
+}
+```
+
+Allowed `contentType` values: `image/jpeg`, `image/png`, `image/webp`, `image/gif`.
+
+**Response**
+
+```json
+{
+  "uploadUrl": "https://storage.googleapis.com/...",
+  "objectName": "uploads/<userId>/<uuid>.jpg",
+  "publicUrl": "https://storage.googleapis.com/<bucket>/uploads/<userId>/<uuid>.jpg",
+  "contentType": "image/jpeg",
+  "expiresInSeconds": 900
+}
+```
+
+**Android upload**
+
+```http
+PUT <uploadUrl>
+Content-Type: image/jpeg
+
+<binary image data>
+```
+
+Then save `publicUrl` in your post/profile record via the normal API.
+
+### GCS bucket CORS (required for Android direct PUT)
+
+Apply the CORS config in `config/gcs-cors.json`:
+
+```json
+[
+  {
+    "origin": ["*"],
+    "method": ["PUT", "OPTIONS"],
+    "responseHeader": ["Content-Type", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+For production, replace `"origin": ["*"]` with your app package / domain if applicable.
+
+```bash
+gcloud storage buckets update gs://YOUR_BUCKET_NAME \
+  --cors-file=config/gcs-cors.json \
+  --project=tradefeedapi
+```
+
+---
+
+## Global JWT protection
+
+All routes require a valid backend JWT **by default**. Public routes are explicitly marked with `@Public()`.
+
+Registered in `app.module.ts`:
+
+```ts
+{
+  provide: APP_GUARD,
+  useClass: JwtAuthGuard,
+}
+```
+
+### Public routes (no token required)
+
+| Route | Purpose |
+| ----- | ------- |
+| `GET /` | Health / hello |
+| `POST /auth/firebase` | Login |
+| `GET /stocks`, `/stocks/favourites`, `/stocks/sectors`, `/stocks/search` | Stock metadata |
+| `GET /posts`, `GET /posts/:id` | Public feed / read post |
+| `GET /posts/:postId/comments` | Read comments |
+| `GET /users/check-username`, `GET /users/:id` | Username check / public profile |
+
+Everything else (create post, follow, react, upload URL, etc.) requires `Authorization: Bearer <access_token>`.
+
+### a) Protect an entire controller
+
+```ts
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import type { SafeUser } from '../users/users.service';
+import { GetUser } from '../auth/decorators/get-user.decorator';
+
+@UseGuards(AuthGuard('jwt'))
+@Controller('my-feature')
+export class MyFeatureController {
+  @Get()
+  list(@GetUser() user: SafeUser) {
+    return { userId: user.id, email: user.email };
+  }
+}
+```
+
+> With the global `JwtAuthGuard`, `@UseGuards(AuthGuard('jwt'))` is optional on most controllers — it is shown here as the explicit pattern.
+
+### b) Access the logged-in user
+
+**Preferred — `@GetUser()` decorator**
+
+```ts
+import { GetUser } from '../auth/decorators/get-user.decorator';
+import type { SafeUser } from '../users/users.service';
+
+@Post()
+create(@GetUser() user: SafeUser, @Body() dto: CreatePostDto) {
+  // user.id is the database UUID from the JWT payload
+  return this.postsService.create({ ...dto, authorId: user.id });
+}
+```
+
+**Alternative — `@Req()`**
+
+```ts
+import { Req } from '@nestjs/common';
+import type { Request } from 'express';
+import type { SafeUser } from '../users/users.service';
+
+type AuthedRequest = Request & { user: SafeUser };
+
+@Get('profile')
+getProfile(@Req() req: AuthedRequest) {
+  return req.user;
+}
+```
+
+### c) Whitelist public routes inside a protected controller
+
+```ts
+import { Controller, Get, Post } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
+
+@Controller('posts')
+export class PostsController {
+  @Public()
+  @Get()
+  feed() {
+    /* no token needed */
+  }
+
+  @Post()
+  create() {
+    /* JWT required (global guard) */
+  }
+}
+```
+
+---
+
+## GCP setup (Cloud Run)
+
+### 1. Create a GCS bucket
+
+```bash
+gcloud storage buckets create gs://stocktalk-uploads \
+  --location=asia-south1 \
+  --uniform-bucket-level-access \
+  --project=tradefeedapi
+```
+
+### 2. Apply CORS
+
+```bash
+gcloud storage buckets update gs://stocktalk-uploads \
+  --cors-file=config/gcs-cors.json \
+  --project=tradefeedapi
+```
+
+### 3. Grant the Cloud Run service account bucket access
+
+```bash
+PROJECT_NUMBER=1081340460644
+RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+gcloud storage buckets add-iam-policy-binding gs://stocktalk-uploads \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/storage.objectAdmin" \
+  --project=tradefeedapi
+```
+
+### 4. Store secrets and update Cloud Run
+
+Mount Firebase + GCS credentials and JWT secret (paths must match container env vars):
+
+```bash
+gcloud run services update stocktalk-api \
+  --region=asia-south1 \
+  --project=tradefeedapi \
+  --update-env-vars="GCS_BUCKET_NAME=stocktalk-uploads,GCS_KEYFILE_PATH=/secrets/gcs/gcs-service-account.json,FIREBASE_CREDENTIALS_PATH=/secrets/firebase/firebase-service-account.json,JWT_EXPIRATION=7d,DB_SYNCHRONIZE=false" \
+  --update-secrets="/secrets/gcs/gcs-service-account.json=gcs-service-account:latest,/secrets/firebase/firebase-service-account.json=firebase-service-account:latest,JWT_SECRET=jwt-secret:latest"
+```
+
+### 5. Deploy
+
+```bash
+gcloud builds submit \
+  --tag asia-south1-docker.pkg.dev/tradefeedapi/stocktalk/stocktalk-api:latest \
+  --project=tradefeedapi
+
+gcloud run deploy stocktalk-api \
+  --image=asia-south1-docker.pkg.dev/tradefeedapi/stocktalk/stocktalk-api:latest \
+  --region=asia-south1 \
+  --project=tradefeedapi
+```
+
+---
+
+## Database migrations
+
+Firebase auth added `firebase_uid` and made `password` nullable. Run locally:
+
+```bash
+npm run migration:run
+```
+
+On live Cloud SQL (via proxy):
+
+```bash
+cloud-sql-proxy tradefeedapi:asia-south1:stocktalk-db
+DB_HOST=127.0.0.1 DB_USERNAME=stocktalk DB_PASSWORD='...' DB_NAME=stocktalk npm run migration:run
+```
+
+Or apply SQL manually:
+
+```sql
+ALTER TABLE "users" ALTER COLUMN "password" DROP NOT NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "firebase_uid" character varying;
+CREATE UNIQUE INDEX IF NOT EXISTS "IDX_users_firebase_uid"
+  ON "users" ("firebase_uid") WHERE "firebase_uid" IS NOT NULL;
+```
+
+No additional migration is required for GCS signed URLs.
+
+---
+
 ## Useful commands
 
 | Command                          | What it does                          |
@@ -438,16 +758,17 @@ comments     — post -> comment, optional parent (one level of replies)
 | `npm run lint`                   | Lint the code                         |
 | `brew services start postgresql@16` | Start the database                 |
 | `brew services stop postgresql@16`  | Stop the database                  |
+| `npm run migration:run`          | Apply pending DB migrations           |
+| `npm run migration:show`         | Show migration status                 |
+
 | `psql stocktalk`                 | Open a SQL shell on the database      |
 
 ---
 
 ## Next steps (suggested roadmap)
 
-1. `POST /auth/login` + JWT auth (`@nestjs/jwt`, `passport`)
-2. `Sector` and `Stock` entities + follow/unfollow endpoints
-3. `Post` and `Comment` entities (threaded comments) tied to a stock/sector
-4. Upvote/downvote with Redis counters
-5. Feed endpoint (posts from followed sectors/stocks)
-6. Switch `DB_SYNCHRONIZE=false` and adopt TypeORM **migrations** for production
-```
+1. Move secrets to **Secret Manager** on Cloud Run (Firebase JSON, GCS key, JWT)
+2. Set up **Cloud Build trigger** on push to `main` for auto-deploy
+3. Restrict GCS bucket CORS origins for production
+4. Add read signed URLs for private objects if needed
+5. Wire `authorId` from `@GetUser()` in post/comment create endpoints (replace client-supplied `userId`)
