@@ -1,14 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  cert,
-  getApps,
-  initializeApp,
-  ServiceAccount,
-} from 'firebase-admin/app';
+import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { Auth, getAuth } from 'firebase-admin/auth';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
 
 @Injectable()
 export class FirebaseAdminService implements OnModuleInit {
@@ -21,23 +14,18 @@ export class FirebaseAdminService implements OnModuleInit {
       return;
     }
 
-    const credentialsPath = this.config.get<string>('FIREBASE_CREDENTIALS_PATH');
-    if (!credentialsPath) {
-      throw new Error(
-        'FIREBASE_CREDENTIALS_PATH environment variable is required',
-      );
-    }
-
-    const absolutePath = resolve(credentialsPath);
-    const serviceAccount = JSON.parse(
-      readFileSync(absolutePath, 'utf8'),
-    ) as ServiceAccount;
+    const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
 
     initializeApp({
-      credential: cert(serviceAccount),
+      credential: applicationDefault(),
+      ...(projectId ? { projectId } : {}),
     });
 
-    this.logger.log(`Firebase Admin initialized using ${absolutePath}`);
+    this.logger.log(
+      projectId
+        ? `Firebase Admin initialized with ADC (project ${projectId})`
+        : 'Firebase Admin initialized with Application Default Credentials',
+    );
   }
 
   getAuth(): Auth {

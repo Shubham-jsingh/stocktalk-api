@@ -1,7 +1,8 @@
-import { IsUUID } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 
 export class ReactionDto {
-  // The user reacting (no auth yet — replace with JWT subject later).
-  @IsUUID()
-  userId: string;
+  // Ignored when a Firebase token is present; kept so older clients still validate.
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }

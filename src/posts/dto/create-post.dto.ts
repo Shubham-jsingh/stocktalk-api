@@ -10,10 +10,6 @@ import {
 } from 'class-validator';
 
 export class CreatePostDto {
-  // The user creating the post (no auth yet — replace with JWT subject later).
-  @IsUUID()
-  authorId: string;
-
   @IsString()
   @MinLength(1)
   @MaxLength(200)

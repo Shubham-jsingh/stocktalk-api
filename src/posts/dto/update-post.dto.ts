@@ -10,10 +10,6 @@ import {
 } from 'class-validator';
 
 export class UpdatePostDto {
-  // The user attempting the edit; must match the post's author.
-  @IsUUID()
-  userId: string;
-
   @IsOptional()
   @IsString()
   @MinLength(1)

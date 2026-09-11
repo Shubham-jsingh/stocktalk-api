@@ -29,9 +29,9 @@ export class CommentsService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async create(postId: string, dto: CreateCommentDto): Promise<Comment> {
+  async create(postId: string, authorId: string, dto: CreateCommentDto): Promise<Comment> {
     await this.ensurePost(postId);
-    await this.ensureUser(dto.userId);
+    await this.ensureUser(authorId);
 
     // A reply must point at a top-level comment on the same post; we never
     // allow replying to a reply (max depth = 1).
@@ -56,7 +56,7 @@ export class CommentsService {
       const saved = await comments.save(
         comments.create({
           postId,
-          authorId: dto.userId,
+          authorId,
           body: dto.body,
           parentId: dto.parentCommentId ?? null,
         }),

@@ -159,7 +159,10 @@ stocktalk-api running on http://localhost:3000
 
 | Method & path                                  | Purpose                                  |
 | ---------------------------------------------- | ---------------------------------------- |
-| `POST   /users`                                | Create a user (with profile fields)      |
+| `GET    /health`                               | Public health check                      |
+| `GET    /api/health`                           | Public health check                      |
+| `GET    /auth/me`                              | Current Firebase user                    |
+| `POST   /storage/signed-url`                   | GCS write signed URL (Firebase token)    |
 | `GET    /users/check-username?username=`       | Check if a username is available         |
 | `GET    /users/:id`                            | Get a user's details                     |
 | `PATCH  /users/:id`                            | Edit a user's profile                    |
@@ -273,17 +276,19 @@ returns only those flagged `true`.
 
 ```bash
 # Follow a stock / sector / user  (201)
-curl -X POST http://localhost:3000/users/<userId>/follows/stocks/<stockId>
-curl -X POST http://localhost:3000/users/<userId>/follows/sectors/<sectorId>
-curl -X POST http://localhost:3000/users/<userId>/follows/users/<targetUserId>
+curl -X POST http://localhost:3000/users/<firebaseUid>/follows/stocks/<stockId> \
+  -H "Authorization: Bearer <firebase-id-token>"
+curl -X POST http://localhost:3000/users/<firebaseUid>/follows/sectors/<sectorId> \
+  -H "Authorization: Bearer <firebase-id-token>"
+curl -X POST http://localhost:3000/users/<firebaseUid>/follows/users/<targetFirebaseUid> \
+  -H "Authorization: Bearer <firebase-id-token>"
 
 # List follows -> { "stocks": [...], "sectors": [...], "users": [...] }
-curl http://localhost:3000/users/<userId>/follows
+curl http://localhost:3000/users/<firebaseUid>/follows
 
 # Unfollow  (204 No Content)
-curl -X DELETE http://localhost:3000/users/<userId>/follows/stocks/<stockId>
-curl -X DELETE http://localhost:3000/users/<userId>/follows/sectors/<sectorId>
-curl -X DELETE http://localhost:3000/users/<userId>/follows/users/<targetUserId>
+curl -X DELETE http://localhost:3000/users/<firebaseUid>/follows/stocks/<stockId> \
+  -H "Authorization: Bearer <firebase-id-token>"
 ```
 
 Following the same target twice is idempotent (returns the existing follow).
@@ -295,20 +300,22 @@ Posts carry denormalized `likeCount`, `dislikeCount`, and `commentCount` so
 feeds and "how many likes" reads never need aggregate queries.
 
 ```bash
-# Create a post (authorId = which user; sectorId optional)
+# Create a post (author is the Firebase user; sectorId optional)
 curl -X POST http://localhost:3000/posts \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
-  -d '{"authorId":"<userId>","title":"NVDA earnings","body":"Strong quarter.",
+  -d '{"title":"NVDA earnings","body":"Strong quarter.",
        "imageUrl":"https://img.example.com/n.png",
        "links":["https://example.com/a"],"sectorId":"<sectorId>"}'
 
 # Get one post
 curl http://localhost:3000/posts/<postId>
 
-# Edit a post — only the author may edit (others get 403). userId = the editor.
+# Edit a post — only the author may edit (others get 403)
 curl -X PATCH http://localhost:3000/posts/<postId> \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
-  -d '{"userId":"<authorId>","title":"NVDA earnings (edited)"}'
+  -d '{"title":"NVDA earnings (edited)"}'
 ```
 
 #### Feed (paginated)
@@ -332,9 +339,9 @@ curl -X PATCH http://localhost:3000/posts/<postId> \
 One reaction per user per post; liking then disliking switches it.
 
 ```bash
-curl -X POST   http://localhost:3000/posts/<postId>/like     -H "Content-Type: application/json" -d '{"userId":"<userId>"}'
-curl -X POST   http://localhost:3000/posts/<postId>/dislike  -H "Content-Type: application/json" -d '{"userId":"<userId>"}'
-curl -X DELETE http://localhost:3000/posts/<postId>/reaction -H "Content-Type: application/json" -d '{"userId":"<userId>"}'
+curl -X POST   http://localhost:3000/posts/<postId>/like     -H "Authorization: Bearer <firebase-id-token>"
+curl -X POST   http://localhost:3000/posts/<postId>/dislike  -H "Authorization: Bearer <firebase-id-token>"
+curl -X DELETE http://localhost:3000/posts/<postId>/reaction -H "Authorization: Bearer <firebase-id-token>"
 # each returns: { postId, userId, reaction, likeCount, dislikeCount }
 ```
 
@@ -343,13 +350,15 @@ curl -X DELETE http://localhost:3000/posts/<postId>/reaction -H "Content-Type: a
 ```bash
 # Top-level comment
 curl -X POST http://localhost:3000/posts/<postId>/comments \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
-  -d '{"userId":"<userId>","body":"Great call!"}'
+  -d '{"body":"Great call!"}'
 
 # Reply to a top-level comment (pass parentCommentId)
 curl -X POST http://localhost:3000/posts/<postId>/comments \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
-  -d '{"userId":"<userId>","body":"Thanks!","parentCommentId":"<commentId>"}'
+  -d '{"body":"Thanks!","parentCommentId":"<commentId>"}'
 # Replying to a reply returns 400 (max depth = 1).
 
 # List top-level comments (paginated), each with its replies
@@ -428,61 +437,73 @@ comments     — post -> comment, optional parent (one level of replies)
 
 ---
 
-## Authentication (Firebase + custom JWT)
+## Authentication (Firebase ID token)
 
-The Android app signs in with **Firebase Google Sign-In**, sends the Firebase ID token to the backend, and receives a **custom backend JWT** for all protected API calls.
+Android signs in with **Firebase Google Sign-In** and sends the **Firebase ID token** on every protected request. The backend verifies it with the Firebase Admin SDK. There is **no custom backend JWT**.
 
-### Environment variables
+```
+[ Android App ] --(Google Sign-In)--> [ Firebase Auth ]
+       |
+       |  Authorization: Bearer <Firebase ID token>
+       v
+[ NestJS API ] -- verifyIdToken --> [ users.id = Firebase uid ]
+```
 
-Add to `.env` (see `.env.example`):
+`users.id` in PostgreSQL is the Firebase Auth UID.
+
+### Environment
+
+Firebase Admin uses **Application Default Credentials** (no JSON path in code).
 
 ```env
-FIREBASE_CREDENTIALS_PATH=./secrets/firebase-service-account.json
-JWT_SECRET=your-long-random-secret
-JWT_EXPIRATION=7d
+FIREBASE_PROJECT_ID=your-firebase-project-id
 ```
 
-Download the Firebase service account JSON from **Firebase Console → Project Settings → Service Accounts → Generate new private key**. Store it at `secrets/firebase-service-account.json` (never commit it).
+Local:
 
-### `POST /auth/firebase` (public)
-
-Exchange a Firebase ID token for a backend JWT.
-
-**Request**
-
-```json
-{ "idToken": "FIREBASE_ID_TOKEN_FROM_ANDROID" }
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=./secrets/firebase-service-account.json
 ```
 
-**Response**
-
-```json
-{
-  "access_token": "eyJhbG...",
-  "user": {
-    "id": "uuid",
-    "username": "john_doe",
-    "email": "john@gmail.com",
-    "fullName": "John Doe",
-    "profilePhotoUrl": "https://..."
-  }
-}
-```
-
-### `GET /auth/me` (protected)
-
-Returns the currently authenticated user.
-
-```http
-Authorization: Bearer <access_token>
-```
+Cloud Run uses the runtime service account automatically. Grant it **Firebase Admin** (or a custom role that can verify ID tokens).
 
 ### Android flow
 
-1. Firebase Google Sign-In on device
-2. `FirebaseAuth.getInstance().currentUser?.getIdToken(true)`
-3. `POST /auth/firebase` with `{ idToken }`
-4. Store `access_token` and send `Authorization: Bearer ...` on every protected request
+1. Google Sign-In via Firebase Auth
+2. `FirebaseAuth.getInstance().currentUser.getIdToken(true)`
+3. Call the API with:
+
+```http
+Authorization: Bearer <firebase-id-token>
+```
+
+On the first authenticated request, the API creates a `users` row with `id = uid` if it does not exist.
+
+### `GET /auth/me` (protected)
+
+Returns `{ uid, email, roles, user }` for the current Firebase user.
+
+### Public vs protected
+
+All routes require a Firebase ID token **except** those marked `@Public()`:
+
+| Route | Purpose |
+| ----- | ------- |
+| `GET /` | Hello |
+| `GET /health`, `GET /api/health` | Health checks |
+| `GET /stocks`, `/stocks/favourites`, `/stocks/sectors`, `/stocks/search` | Stock metadata |
+| `GET /posts`, `GET /posts/:id` | Public feed / post |
+| `GET /posts/:postId/comments` | Read comments |
+| `GET /users/check-username`, `GET /users/:id` | Username / public profile |
+| `GET /users/:userId/follows` | Public follow list |
+
+Protected routes use `@GetUser()` for `{ uid, email, roles, user }`. Actor IDs (posts, comments, reactions, follows, signed URLs) come from `auth.uid`, not from the request body.
+
+Error shape:
+
+```json
+{ "error": { "code": "UNAUTHORIZED", "message": "Invalid or expired Firebase token" } }
+```
 
 ---
 
@@ -494,17 +515,16 @@ Authenticated clients request a **write-only V4 signed URL**, then upload direct
 
 ```env
 GCS_BUCKET_NAME=stocktalk-uploads
-GCS_KEYFILE_PATH=./secrets/gcs-service-account.json
 ```
 
-Use a GCP service account with **Storage Object Admin** (or a tighter custom role: `storage.objects.create` on the bucket). The same Firebase service account can be used if it has bucket permissions, or create a dedicated GCS key.
+GCS also uses ADC. The Cloud Run service account needs **Storage Object Admin** (or object create) plus **Service Account Token Creator** so it can mint V4 signed URLs.
 
 ### `POST /storage/signed-url` (protected)
 
 **Request**
 
 ```http
-Authorization: Bearer <access_token>
+Authorization: Bearer <firebase-id-token>
 Content-Type: application/json
 
 {
@@ -563,105 +583,6 @@ gcloud storage buckets update gs://YOUR_BUCKET_NAME \
 
 ---
 
-## Global JWT protection
-
-All routes require a valid backend JWT **by default**. Public routes are explicitly marked with `@Public()`.
-
-Registered in `app.module.ts`:
-
-```ts
-{
-  provide: APP_GUARD,
-  useClass: JwtAuthGuard,
-}
-```
-
-### Public routes (no token required)
-
-| Route | Purpose |
-| ----- | ------- |
-| `GET /` | Health / hello |
-| `POST /auth/firebase` | Login |
-| `GET /stocks`, `/stocks/favourites`, `/stocks/sectors`, `/stocks/search` | Stock metadata |
-| `GET /posts`, `GET /posts/:id` | Public feed / read post |
-| `GET /posts/:postId/comments` | Read comments |
-| `GET /users/check-username`, `GET /users/:id` | Username check / public profile |
-
-Everything else (create post, follow, react, upload URL, etc.) requires `Authorization: Bearer <access_token>`.
-
-### a) Protect an entire controller
-
-```ts
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import type { SafeUser } from '../users/users.service';
-import { GetUser } from '../auth/decorators/get-user.decorator';
-
-@UseGuards(AuthGuard('jwt'))
-@Controller('my-feature')
-export class MyFeatureController {
-  @Get()
-  list(@GetUser() user: SafeUser) {
-    return { userId: user.id, email: user.email };
-  }
-}
-```
-
-> With the global `JwtAuthGuard`, `@UseGuards(AuthGuard('jwt'))` is optional on most controllers — it is shown here as the explicit pattern.
-
-### b) Access the logged-in user
-
-**Preferred — `@GetUser()` decorator**
-
-```ts
-import { GetUser } from '../auth/decorators/get-user.decorator';
-import type { SafeUser } from '../users/users.service';
-
-@Post()
-create(@GetUser() user: SafeUser, @Body() dto: CreatePostDto) {
-  // user.id is the database UUID from the JWT payload
-  return this.postsService.create({ ...dto, authorId: user.id });
-}
-```
-
-**Alternative — `@Req()`**
-
-```ts
-import { Req } from '@nestjs/common';
-import type { Request } from 'express';
-import type { SafeUser } from '../users/users.service';
-
-type AuthedRequest = Request & { user: SafeUser };
-
-@Get('profile')
-getProfile(@Req() req: AuthedRequest) {
-  return req.user;
-}
-```
-
-### c) Whitelist public routes inside a protected controller
-
-```ts
-import { Controller, Get, Post } from '@nestjs/common';
-import { Public } from '../auth/decorators/public.decorator';
-
-@Controller('posts')
-export class PostsController {
-  @Public()
-  @Get()
-  feed() {
-    /* no token needed */
-  }
-
-  @Post()
-  create() {
-    /* JWT required (global guard) */
-  }
-}
-```
-
----
-
 ## GCP setup (Cloud Run)
 
 ### 1. Create a GCS bucket
@@ -681,7 +602,7 @@ gcloud storage buckets update gs://stocktalk-uploads \
   --project=tradefeedapi
 ```
 
-### 3. Grant the Cloud Run service account bucket access
+### 3. Grant the Cloud Run service account bucket + token-creator access
 
 ```bash
 PROJECT_NUMBER=1081340460644
@@ -691,18 +612,21 @@ gcloud storage buckets add-iam-policy-binding gs://stocktalk-uploads \
   --member="serviceAccount:${RUNTIME_SA}" \
   --role="roles/storage.objectAdmin" \
   --project=tradefeedapi
+
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/iam.serviceAccountTokenCreator" \
+  --project=tradefeedapi
 ```
 
-### 4. Store secrets and update Cloud Run
-
-Mount Firebase + GCS credentials and JWT secret (paths must match container env vars):
+### 4. Update Cloud Run env (ADC, no mounted JSON keys)
 
 ```bash
 gcloud run services update stocktalk-api \
   --region=asia-south1 \
   --project=tradefeedapi \
-  --update-env-vars="GCS_BUCKET_NAME=stocktalk-uploads,GCS_KEYFILE_PATH=/secrets/gcs/gcs-service-account.json,FIREBASE_CREDENTIALS_PATH=/secrets/firebase/firebase-service-account.json,JWT_EXPIRATION=7d,DB_SYNCHRONIZE=false" \
-  --update-secrets="/secrets/gcs/gcs-service-account.json=gcs-service-account:latest,/secrets/firebase/firebase-service-account.json=firebase-service-account:latest,JWT_SECRET=jwt-secret:latest"
+  --update-env-vars="GCS_BUCKET_NAME=stocktalk-uploads,FIREBASE_PROJECT_ID=tradefeedapi,DB_SYNCHRONIZE=false" \
+  --remove-env-vars="GCS_KEYFILE_PATH,FIREBASE_CREDENTIALS_PATH,JWT_SECRET,JWT_EXPIRATION"
 ```
 
 ### 5. Deploy
@@ -722,7 +646,7 @@ gcloud run deploy stocktalk-api \
 
 ## Database migrations
 
-Firebase auth added `firebase_uid` and made `password` nullable. Run locally:
+This release sets `users.id` to the Firebase UID and drops `firebase_uid`.
 
 ```bash
 npm run migration:run
@@ -735,16 +659,9 @@ cloud-sql-proxy tradefeedapi:asia-south1:stocktalk-db
 DB_HOST=127.0.0.1 DB_USERNAME=stocktalk DB_PASSWORD='...' DB_NAME=stocktalk npm run migration:run
 ```
 
-Or apply SQL manually:
+Keep a backup before running. Revert is not supported; restore from backup if needed.
 
-```sql
-ALTER TABLE "users" ALTER COLUMN "password" DROP NOT NULL;
-ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "firebase_uid" character varying;
-CREATE UNIQUE INDEX IF NOT EXISTS "IDX_users_firebase_uid"
-  ON "users" ("firebase_uid") WHERE "firebase_uid" IS NOT NULL;
-```
-
-No additional migration is required for GCS signed URLs.
+If `DB_SYNCHRONIZE=true` locally, TypeORM may apply schema changes automatically. Use `false` in production.
 
 ---
 
@@ -760,15 +677,12 @@ No additional migration is required for GCS signed URLs.
 | `brew services stop postgresql@16`  | Stop the database                  |
 | `npm run migration:run`          | Apply pending DB migrations           |
 | `npm run migration:show`         | Show migration status                 |
-
 | `psql stocktalk`                 | Open a SQL shell on the database      |
 
 ---
 
 ## Next steps (suggested roadmap)
 
-1. Move secrets to **Secret Manager** on Cloud Run (Firebase JSON, GCS key, JWT)
-2. Set up **Cloud Build trigger** on push to `main` for auto-deploy
-3. Restrict GCS bucket CORS origins for production
-4. Add read signed URLs for private objects if needed
-5. Wire `authorId` from `@GetUser()` in post/comment create endpoints (replace client-supplied `userId`)
+1. Set up **Cloud Build trigger** on push to `main` for auto-deploy
+2. Restrict GCS bucket CORS origins for production
+3. Add read signed URLs for private objects if needed

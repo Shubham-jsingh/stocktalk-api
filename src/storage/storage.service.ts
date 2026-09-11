@@ -2,13 +2,12 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Storage, Bucket } from '@google-cloud/storage';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
-import { resolve } from 'path';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg',
@@ -33,32 +32,30 @@ export interface UploadSignedUrlResult {
 }
 
 @Injectable()
-export class StorageService implements OnModuleInit {
+export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private storage!: Storage;
-  private bucket!: Bucket;
-  private bucketName!: string;
+  private storage?: Storage;
+  private bucket?: Bucket;
+  private bucketName?: string;
 
   constructor(private readonly config: ConfigService) {}
 
-  onModuleInit(): void {
+  private getBucket(): Bucket {
+    if (this.bucket) {
+      return this.bucket;
+    }
+
     this.bucketName = this.config.get<string>('GCS_BUCKET_NAME', '');
-    const keyfilePath = this.config.get<string>('GCS_KEYFILE_PATH');
-
     if (!this.bucketName) {
-      throw new Error('GCS_BUCKET_NAME environment variable is required');
+      throw new ServiceUnavailableException(
+        'Image uploads are not configured (GCS_BUCKET_NAME is missing)',
+      );
     }
 
-    if (!keyfilePath) {
-      throw new Error('GCS_KEYFILE_PATH environment variable is required');
-    }
-
-    this.storage = new Storage({
-      keyFilename: resolve(keyfilePath),
-    });
+    this.storage = new Storage();
     this.bucket = this.storage.bucket(this.bucketName);
-
     this.logger.log(`GCS client initialized for bucket "${this.bucketName}"`);
+    return this.bucket;
   }
 
   async generateUploadSignedUrl(
@@ -72,7 +69,8 @@ export class StorageService implements OnModuleInit {
     const objectName = `uploads/${userId}/${randomUUID()}${extension}`;
     const expiresInSeconds = 15 * 60;
 
-    const [uploadUrl] = await this.bucket.file(objectName).getSignedUrl({
+    const bucket = this.getBucket();
+    const [uploadUrl] = await bucket.file(objectName).getSignedUrl({
       version: 'v4',
       action: 'write',
       expires: Date.now() + expiresInSeconds * 1000,

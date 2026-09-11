@@ -36,12 +36,12 @@ export class PostsService {
     private readonly followsService: FollowsService,
   ) {}
 
-  async create(dto: CreatePostDto): Promise<Post> {
+  async create(authorId: string, dto: CreatePostDto): Promise<Post> {
     const authorExists = await this.usersRepository.existsBy({
-      id: dto.authorId,
+      id: authorId,
     });
     if (!authorExists) {
-      throw new NotFoundException(`User ${dto.authorId} not found`);
+      throw new NotFoundException(`User ${authorId} not found`);
     }
 
     if (dto.sectorId) {
@@ -54,7 +54,7 @@ export class PostsService {
     }
 
     const post = this.postsRepository.create({
-      authorId: dto.authorId,
+      authorId,
       title: dto.title,
       body: dto.body,
       imageUrl: dto.imageUrl ?? null,
@@ -74,11 +74,10 @@ export class PostsService {
     return post;
   }
 
-  async update(id: string, dto: UpdatePostDto): Promise<Post> {
+  async update(id: string, actorId: string, dto: UpdatePostDto): Promise<Post> {
     const post = await this.findOne(id);
 
-    // Ownership check: only the original author may edit.
-    if (post.authorId !== dto.userId) {
+    if (post.authorId !== actorId) {
       throw new ForbiddenException('You can only edit your own posts');
     }
 
@@ -91,8 +90,7 @@ export class PostsService {
       }
     }
 
-    const { userId: _userId, ...changes } = dto;
-    for (const [key, value] of Object.entries(changes)) {
+    for (const [key, value] of Object.entries(dto)) {
       if (value !== undefined) {
         (post as unknown as Record<string, unknown>)[key] = value;
       }

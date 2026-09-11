@@ -8,7 +8,9 @@ import {
   Post as HttpPost,
   Query,
 } from '@nestjs/common';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import type { AuthUser } from '../auth/interfaces/auth-user';
 import { CreatePostDto } from './dto/create-post.dto';
 import { FeedQueryDto } from './dto/feed-query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -19,8 +21,8 @@ export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
   @HttpPost()
-  create(@Body() dto: CreatePostDto) {
-    return this.postsService.create(dto);
+  create(@GetUser() auth: AuthUser, @Body() dto: CreatePostDto) {
+    return this.postsService.create(auth.uid, dto);
   }
 
   @Public()
@@ -37,9 +39,10 @@ export class PostsController {
 
   @Patch(':id')
   update(
+    @GetUser() auth: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePostDto,
   ) {
-    return this.postsService.update(id, dto);
+    return this.postsService.update(id, auth.uid, dto);
   }
 }

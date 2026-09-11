@@ -3,7 +3,7 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
-  IsUUID,
+  IsString,
   Max,
   Min,
 } from 'class-validator';
@@ -23,7 +23,7 @@ export class FeedQueryDto {
 
   // Required when feed is following_users or following_sectors.
   @IsOptional()
-  @IsUUID()
+  @IsString()
   userId?: string;
 
   @IsOptional()
