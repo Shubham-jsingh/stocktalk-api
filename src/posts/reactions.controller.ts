@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Param, ParseUUIDPipe, Post } from '@nestjs/common';
-import { ReactionDto } from './dto/reaction.dto';
+import { Controller, Delete, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { GetUser } from '../auth/decorators/get-user.decorator';
+import type { AuthUser } from '../auth/interfaces/auth-user';
 import { ReactionType } from './entities/post-reaction.entity';
 import { ReactionsService } from './reactions.service';
 
@@ -8,35 +9,31 @@ export class ReactionsController {
   constructor(private readonly reactionsService: ReactionsService) {}
 
   @Post('like')
-  like(
-    @Param('postId', ParseUUIDPipe) postId: string,
-    @Body() dto: ReactionDto,
-  ) {
+  like(@GetUser() auth: AuthUser, @Param('postId', ParseUUIDPipe) postId: string) {
     return this.reactionsService.setReaction(
       postId,
-      dto.userId,
+      auth.uid,
       ReactionType.LIKE,
     );
   }
 
   @Post('dislike')
   dislike(
+    @GetUser() auth: AuthUser,
     @Param('postId', ParseUUIDPipe) postId: string,
-    @Body() dto: ReactionDto,
   ) {
     return this.reactionsService.setReaction(
       postId,
-      dto.userId,
+      auth.uid,
       ReactionType.DISLIKE,
     );
   }
 
-  // Remove the caller's like/dislike from the post.
   @Delete('reaction')
   remove(
+    @GetUser() auth: AuthUser,
     @Param('postId', ParseUUIDPipe) postId: string,
-    @Body() dto: ReactionDto,
   ) {
-    return this.reactionsService.removeReaction(postId, dto.userId);
+    return this.reactionsService.removeReaction(postId, auth.uid);
   }
 }

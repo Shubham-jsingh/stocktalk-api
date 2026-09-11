@@ -11,4 +11,16 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  @Public()
+  @Get('health')
+  health() {
+    return { status: 'ok' };
+  }
+
+  @Public()
+  @Get('api/health')
+  apiHealth() {
+    return { status: 'ok' };
+  }
 }

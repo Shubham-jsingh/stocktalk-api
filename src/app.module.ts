@@ -5,7 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { FirebaseAuthGuard } from './auth/guards/firebase-auth.guard';
 import { Follow } from './follows/entities/follow.entity';
 import { FollowsModule } from './follows/follows.module';
 import { Comment } from './posts/entities/comment.entity';
@@ -59,7 +59,7 @@ import { UsersModule } from './users/users.module';
     AppService,
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard,
+      useClass: FirebaseAuthGuard,
     },
   ],
 })

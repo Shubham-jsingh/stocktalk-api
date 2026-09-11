@@ -1,16 +1,18 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 
-// Shape returned to clients: the user without the password field.
 export type SafeUser = Omit<User, 'password'>;
 
 @Injectable()
@@ -39,6 +41,7 @@ export class UsersService {
 
     const user = this.usersRepository.create({
       ...profile,
+      id: randomUUID(),
       password: passwordHash,
     });
 
@@ -51,55 +54,46 @@ export class UsersService {
     return !taken;
   }
 
-  async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { email } });
-  }
-
-  async findByFirebaseUid(firebaseUid: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { firebaseUid } });
-  }
-
   async findEntityById(id: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { id } });
   }
 
-  async createFirebaseUser(data: {
-    email: string;
-    firebaseUid: string;
+  async upsertFromFirebase(data: {
+    uid: string;
+    email: string | null;
     fullName?: string | null;
     profilePhotoUrl?: string | null;
   }): Promise<SafeUser> {
-    const username = await this.generateUniqueUsername(data.email);
+    if (!data.email) {
+      throw new UnauthorizedException('Firebase token is missing email');
+    }
 
-    const user = this.usersRepository.create({
+    const existing = await this.usersRepository.findOne({
+      where: { id: data.uid },
+    });
+
+    if (existing) {
+      if (data.fullName && !existing.fullName) {
+        existing.fullName = data.fullName;
+      }
+      if (data.profilePhotoUrl && !existing.profilePhotoUrl) {
+        existing.profilePhotoUrl = data.profilePhotoUrl;
+      }
+      const saved = await this.usersRepository.save(existing);
+      return this.stripPassword(saved);
+    }
+
+    const username = await this.generateUniqueUsername(data.email);
+    const created = this.usersRepository.create({
+      id: data.uid,
       username,
       email: data.email,
-      firebaseUid: data.firebaseUid,
       fullName: data.fullName ?? null,
       profilePhotoUrl: data.profilePhotoUrl ?? null,
       password: null,
     });
 
-    const saved = await this.usersRepository.save(user);
-    return this.stripPassword(saved);
-  }
-
-  async linkFirebaseAccount(
-    user: User,
-    data: {
-      firebaseUid: string;
-      fullName?: string | null;
-      profilePhotoUrl?: string | null;
-    },
-  ): Promise<SafeUser> {
-    user.firebaseUid = data.firebaseUid;
-    if (data.fullName && !user.fullName) {
-      user.fullName = data.fullName;
-    }
-    if (data.profilePhotoUrl && !user.profilePhotoUrl) {
-      user.profilePhotoUrl = data.profilePhotoUrl;
-    }
-    const saved = await this.usersRepository.save(user);
+    const saved = await this.usersRepository.save(created);
     return this.stripPassword(saved);
   }
 
@@ -111,7 +105,15 @@ export class UsersService {
     return this.stripPassword(user);
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<SafeUser> {
+  async update(
+    actorId: string,
+    id: string,
+    updateUserDto: UpdateUserDto,
+  ): Promise<SafeUser> {
+    if (actorId !== id) {
+      throw new ForbiddenException('You can only update your own profile');
+    }
+
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) {
       throw new NotFoundException(`User ${id} not found`);

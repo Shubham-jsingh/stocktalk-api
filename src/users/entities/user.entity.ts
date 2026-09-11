@@ -2,7 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
@@ -20,7 +20,8 @@ export enum InvestingStyle {
 
 @Entity('users')
 export class User {
-  @PrimaryGeneratedColumn('uuid')
+  // Firebase Auth UID. This is both the Firebase identity and our primary key.
+  @PrimaryColumn({ type: 'varchar' })
   id: string;
 
   @Column({ unique: true })
@@ -29,12 +30,9 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  // Hashed password for email/password sign-up. Null for Firebase-only accounts.
+  // Hashed password for optional email/password sign-up. Null for Firebase accounts.
   @Column({ type: 'varchar', nullable: true })
   password: string | null;
-
-  @Column({ name: 'firebase_uid', type: 'varchar', unique: true, nullable: true })
-  firebaseUid: string | null;
 
   @Column({ name: 'full_name', type: 'varchar', nullable: true })
   fullName: string | null;

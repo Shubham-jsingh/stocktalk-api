@@ -1,6 +1,7 @@
 import {
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -8,66 +9,87 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
+import { GetUser } from '../auth/decorators/get-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
+import type { AuthUser } from '../auth/interfaces/auth-user';
 import { FollowsService } from './follows.service';
 
 @Controller('users/:userId/follows')
 export class FollowsController {
   constructor(private readonly followsService: FollowsService) {}
 
-  // GET /users/:userId/follows -> followed stocks + sectors
+  @Public()
   @Get()
-  list(@Param('userId', ParseUUIDPipe) userId: string) {
+  list(@Param('userId') userId: string) {
     return this.followsService.listFollows(userId);
   }
 
   @Post('stocks/:stockId')
   followStock(
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @GetUser() auth: AuthUser,
+    @Param('userId') userId: string,
     @Param('stockId', ParseUUIDPipe) stockId: string,
   ) {
-    return this.followsService.followStock(userId, stockId);
+    this.assertSelf(auth, userId);
+    return this.followsService.followStock(auth.uid, stockId);
   }
 
   @Delete('stocks/:stockId')
   @HttpCode(HttpStatus.NO_CONTENT)
   unfollowStock(
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @GetUser() auth: AuthUser,
+    @Param('userId') userId: string,
     @Param('stockId', ParseUUIDPipe) stockId: string,
   ) {
-    return this.followsService.unfollowStock(userId, stockId);
+    this.assertSelf(auth, userId);
+    return this.followsService.unfollowStock(auth.uid, stockId);
   }
 
   @Post('sectors/:sectorId')
   followSector(
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @GetUser() auth: AuthUser,
+    @Param('userId') userId: string,
     @Param('sectorId', ParseUUIDPipe) sectorId: string,
   ) {
-    return this.followsService.followSector(userId, sectorId);
+    this.assertSelf(auth, userId);
+    return this.followsService.followSector(auth.uid, sectorId);
   }
 
   @Delete('sectors/:sectorId')
   @HttpCode(HttpStatus.NO_CONTENT)
   unfollowSector(
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @GetUser() auth: AuthUser,
+    @Param('userId') userId: string,
     @Param('sectorId', ParseUUIDPipe) sectorId: string,
   ) {
-    return this.followsService.unfollowSector(userId, sectorId);
+    this.assertSelf(auth, userId);
+    return this.followsService.unfollowSector(auth.uid, sectorId);
   }
 
   @Post('users/:targetUserId')
   followUser(
-    @Param('userId', ParseUUIDPipe) userId: string,
-    @Param('targetUserId', ParseUUIDPipe) targetUserId: string,
+    @GetUser() auth: AuthUser,
+    @Param('userId') userId: string,
+    @Param('targetUserId') targetUserId: string,
   ) {
-    return this.followsService.followUser(userId, targetUserId);
+    this.assertSelf(auth, userId);
+    return this.followsService.followUser(auth.uid, targetUserId);
   }
 
   @Delete('users/:targetUserId')
   @HttpCode(HttpStatus.NO_CONTENT)
   unfollowUser(
-    @Param('userId', ParseUUIDPipe) userId: string,
-    @Param('targetUserId', ParseUUIDPipe) targetUserId: string,
+    @GetUser() auth: AuthUser,
+    @Param('userId') userId: string,
+    @Param('targetUserId') targetUserId: string,
   ) {
-    return this.followsService.unfollowUser(userId, targetUserId);
+    this.assertSelf(auth, userId);
+    return this.followsService.unfollowUser(auth.uid, targetUserId);
+  }
+
+  private assertSelf(auth: AuthUser, userId: string): void {
+    if (auth.uid !== userId) {
+      throw new ForbiddenException('You can only modify your own follows');
+    }
   }
 }
