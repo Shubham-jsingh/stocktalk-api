@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { Repository } from 'typeorm';
+import { ILike, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -103,6 +103,17 @@ export class UsersService {
       throw new NotFoundException(`User ${id} not found`);
     }
     return this.stripPassword(user);
+  }
+
+  // Prefix search by username or display name (fullName). Caller enforces min length.
+  async searchUsers(query: string): Promise<SafeUser[]> {
+    const term = `${query.trim()}%`;
+    const users = await this.usersRepository.find({
+      where: [{ username: ILike(term) }, { fullName: ILike(term) }],
+      order: { username: 'ASC' },
+      take: 20,
+    });
+    return users.map((user) => this.stripPassword(user));
   }
 
   async update(

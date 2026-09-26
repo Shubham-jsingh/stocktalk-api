@@ -9,6 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Public } from '../auth/decorators/public.decorator';
+import { ListStocksQueryDto } from './dto/list-stocks-query.dto';
 import { SetFavouriteDto } from './dto/set-favourite.dto';
 import { StocksService } from './stocks.service';
 
@@ -18,19 +19,20 @@ export class StocksController {
 
   @Public()
   @Get()
-  findAll() {
-    return this.stocksService.findAllStocks();
+  findAll(@Query() query: ListStocksQueryDto) {
+    return this.stocksService.findStocks(query);
   }
 
   @Public()
   @Get('favourites')
-  findFavourites() {
-    return this.stocksService.findFavourites();
+  findFavourites(@Query() query: ListStocksQueryDto) {
+    return this.stocksService.findFavourites(query);
   }
 
+  /** @deprecated Prefer GET /sectors */
   @Public()
   @Get('sectors')
-  findSectors() {
+  findSectorsLegacy() {
     return this.stocksService.findAllSectors();
   }
 
@@ -46,7 +48,12 @@ export class StocksController {
     return this.stocksService.searchStocks(term);
   }
 
-  // PATCH /stocks/:id/favourite  body: { "isFavourite": true }
+  @Public()
+  @Get(':id')
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.stocksService.findOneStock(id);
+  }
+
   @Patch(':id/favourite')
   setFavourite(
     @Param('id', ParseUUIDPipe) id: string,

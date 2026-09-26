@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FollowsModule } from '../follows/follows.module';
 import { Sector } from '../stocks/entities/sector.entity';
+import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
@@ -15,7 +16,7 @@ import { ReactionsService } from './reactions.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Post, PostReaction, Comment, User, Sector]),
+    TypeOrmModule.forFeature([Post, PostReaction, Comment, User, Sector, Stock]),
     FollowsModule,
   ],
   controllers: [PostsController, ReactionsController, CommentsController],

@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Sector } from '../../stocks/entities/sector.entity';
+import { Stock } from '../../stocks/entities/stock.entity';
 import { User } from '../../users/entities/user.entity';
 
 @Entity('posts')
@@ -46,6 +47,14 @@ export class Post {
 
   @Column({ name: 'sector_id', type: 'uuid', nullable: true })
   sectorId: string | null;
+
+  @Index()
+  @ManyToOne(() => Stock, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'stock_id' })
+  stock: Stock | null;
+
+  @Column({ name: 'stock_id', type: 'uuid', nullable: true })
+  stockId: string | null;
 
   // Denormalized counters kept in sync on each reaction/comment change so that
   // feeds and "how many likes" reads are O(1) and don't need aggregate queries.

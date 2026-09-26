@@ -7,6 +7,7 @@ import {
   IsUUID,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdatePostDto {
@@ -33,6 +34,12 @@ export class UpdatePostDto {
   links?: string[];
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsUUID()
-  sectorId?: string;
+  sectorId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  stockId?: string | null;
 }

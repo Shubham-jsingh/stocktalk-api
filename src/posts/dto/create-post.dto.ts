@@ -33,4 +33,8 @@ export class CreatePostDto {
   @IsOptional()
   @IsUUID()
   sectorId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  stockId?: string;
 }

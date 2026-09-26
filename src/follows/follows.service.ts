@@ -106,7 +106,10 @@ export class FollowsService {
 
     const [stocks, sectors, users] = await Promise.all([
       stockIds.length
-        ? this.stocksRepository.find({ where: { id: In(stockIds) } })
+        ? this.stocksRepository.find({
+            where: { id: In(stockIds) },
+            relations: { sector: true },
+          })
         : Promise.resolve([]),
       sectorIds.length
         ? this.sectorsRepository.find({ where: { id: In(sectorIds) } })

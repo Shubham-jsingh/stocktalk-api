@@ -32,8 +32,10 @@ export class Stock {
   @ManyToOne(() => Sector, (sector) => sector.stocks, {
     nullable: true,
     onDelete: 'SET NULL',
-    eager: true,
   })
   @JoinColumn({ name: 'sector_id' })
   sector: Sector | null;
+
+  @Column({ name: 'sector_id', type: 'uuid', nullable: true })
+  sectorId: string | null;
 }

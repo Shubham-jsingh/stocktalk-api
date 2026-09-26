@@ -29,6 +29,14 @@ export class ReactionsController {
     );
   }
 
+  @Delete('like')
+  unlike(
+    @GetUser() auth: AuthUser,
+    @Param('postId', ParseUUIDPipe) postId: string,
+  ) {
+    return this.reactionsService.removeReaction(postId, auth.uid);
+  }
+
   @Delete('reaction')
   remove(
     @GetUser() auth: AuthUser,

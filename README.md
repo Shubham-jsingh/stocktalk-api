@@ -164,13 +164,18 @@ stocktalk-api running on http://localhost:3000
 | `GET    /auth/me`                              | Current Firebase user                    |
 | `POST   /storage/signed-url`                   | GCS write signed URL (Firebase token)    |
 | `GET    /users/check-username?username=`       | Check if a username is available         |
+| `GET    /users/search?q=`                      | Search users by username or name (prefix, min 3 chars) |
 | `GET    /users/:id`                            | Get a user's details                     |
 | `PATCH  /users/:id`                            | Edit a user's profile                    |
-| `GET    /stocks`                               | List all predefined stocks               |
-| `GET    /stocks/favourites`                    | List all favourite stocks                |
-| `GET    /stocks/sectors`                       | List all sectors                         |
+| `GET    /stocks?page=&limit=&sectorId=&sector=` | Paginated stocks (optional sector filter) |
+| `GET    /stocks/:id`                           | Single stock (includes sector)           |
+| `GET    /stocks/favourites?page=&limit=`       | Paginated favourite stocks               |
+| `GET    /stocks/sectors`                       | List all sectors (legacy; use `/sectors`) |
 | `GET    /stocks/search?q=`                     | Search stocks (prefix, min 3 chars)      |
 | `PATCH  /stocks/:id/favourite`                 | Mark/unmark a stock as favourite         |
+| `GET    /sectors?page=&limit=`                 | Paginated sectors                        |
+| `GET    /sectors/:idOrSlug`                    | Single sector by UUID or slug             |
+| `GET    /sectors/:idOrSlug/stocks?page=&limit=` | Paginated stocks in a sector            |
 | `GET    /users/:userId/follows`                | List a user's followed stocks/sectors/users |
 | `POST   /users/:userId/follows/stocks/:stockId`| Follow a stock                           |
 | `DELETE /users/:userId/follows/stocks/:stockId`| Unfollow a stock                         |
@@ -184,7 +189,8 @@ stocktalk-api running on http://localhost:3000
 | `PATCH  /posts/:id`                            | Edit a post (author only)                |
 | `POST   /posts/:postId/like`                   | Like a post                              |
 | `POST   /posts/:postId/dislike`                | Dislike a post                           |
-| `DELETE /posts/:postId/reaction`               | Remove your like/dislike                 |
+| `DELETE /posts/:postId/like`                   | Unlike / remove your reaction            |
+| `DELETE /posts/:postId/reaction`               | Remove your like/dislike (alias)         |
 | `POST   /posts/:postId/comments`               | Comment, or reply (one level deep)       |
 | `GET    /posts/:postId/comments?page=&limit=`  | List comments with their replies         |
 
@@ -230,6 +236,19 @@ curl "http://localhost:3000/users/check-username?username=trader_joe"
 `username` follows the same rules as signup (3–20 chars, letters/numbers/underscore);
 otherwise returns `400`.
 
+#### Search users — `GET /users/search?q=`
+
+Find public user profiles whose **username** or **full name** starts with `q`
+(case-insensitive). Requires at least **3** characters; returns up to **20**
+matches (no password field).
+
+```bash
+curl "http://localhost:3000/users/search?q=tra"
+# -> [ { "id": "...", "username": "trader_joe", "fullName": "...", ... }, ... ]
+```
+
+Returns `400` if `q` is shorter than 3 characters.
+
 #### Get user details — `GET /users/:id`
 
 Returns `200` with the user, or `404` if not found.
@@ -247,30 +266,48 @@ curl -X PATCH http://localhost:3000/users/<id> \
 
 Returns `200` with the updated user, or `404` if not found.
 
-### Stocks (predefined, seeded on startup)
+### Stocks & sectors (predefined, seeded on startup)
+
+Stocks belong to an optional sector (`sectorId` + nested `sector` when loaded).
+List endpoints return **paginated** JSON (`page` default `1`, `limit` default `10`, max `50`).
 
 ```bash
-# All stocks
-curl http://localhost:3000/stocks
+# Paginated stocks (optional filter by sector UUID or slug)
+curl "http://localhost:3000/stocks?page=1&limit=10"
+curl "http://localhost:3000/stocks?sector=technology"
+curl "http://localhost:3000/stocks?sectorId=<sectorUuid>"
 
-# All sectors
+# Single stock
+curl http://localhost:3000/stocks/<stockId>
+
+# Paginated sectors
+curl "http://localhost:3000/sectors?page=1&limit=10"
+
+# Single sector by UUID or slug
+curl http://localhost:3000/sectors/technology
+
+# Stocks in a sector (paginated)
+curl "http://localhost:3000/sectors/technology/stocks?page=1&limit=10"
+
+# Legacy: all sectors (non-paginated array)
 curl http://localhost:3000/stocks/sectors
 
-# Search by symbol or name — requires at least 3 characters
+# Search by symbol or name — requires at least 3 characters (max 20 hits)
 curl "http://localhost:3000/stocks/search?q=app"   # -> AAPL
 
-# All favourite stocks
-curl http://localhost:3000/stocks/favourites
+# Favourite stocks (paginated)
+curl "http://localhost:3000/stocks/favourites?page=1&limit=10"
 
 # Mark / unmark a stock as favourite
 curl -X PATCH http://localhost:3000/stocks/<stockId>/favourite \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
   -d '{"isFavourite":true}'
 ```
 
 `GET /stocks/search?q=` returns `400` if `q` is shorter than 3 characters.
-Each stock has an `isFavourite` boolean (default `false`); `GET /stocks/favourites`
-returns only those flagged `true`.
+Passing both `sectorId` and `sector` on `GET /stocks` returns `400`.
+Each stock has an `isFavourite` boolean (default `false`).
 
 ### Follows
 
@@ -300,13 +337,15 @@ Posts carry denormalized `likeCount`, `dislikeCount`, and `commentCount` so
 feeds and "how many likes" reads never need aggregate queries.
 
 ```bash
-# Create a post (author is the Firebase user; sectorId optional)
+# Create a post (author is the Firebase user).
+# Optional tags: sectorId, stockId — either, both, or neither.
 curl -X POST http://localhost:3000/posts \
   -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
   -d '{"title":"NVDA earnings","body":"Strong quarter.",
        "imageUrl":"https://img.example.com/n.png",
-       "links":["https://example.com/a"],"sectorId":"<sectorId>"}'
+       "links":["https://example.com/a"],
+       "sectorId":"<sectorId>","stockId":"<stockId>"}'
 
 # Get one post
 curl http://localhost:3000/posts/<postId>
@@ -341,8 +380,10 @@ One reaction per user per post; liking then disliking switches it.
 ```bash
 curl -X POST   http://localhost:3000/posts/<postId>/like     -H "Authorization: Bearer <firebase-id-token>"
 curl -X POST   http://localhost:3000/posts/<postId>/dislike  -H "Authorization: Bearer <firebase-id-token>"
+curl -X DELETE http://localhost:3000/posts/<postId>/like     -H "Authorization: Bearer <firebase-id-token>"
 curl -X DELETE http://localhost:3000/posts/<postId>/reaction -H "Authorization: Bearer <firebase-id-token>"
 # each returns: { postId, userId, reaction, likeCount, dislikeCount }
+# Posts also expose likeCount, dislikeCount, commentCount on GET /posts and GET /posts/:id
 ```
 
 ### Comments & replies (one level deep)
@@ -397,9 +438,12 @@ stocktalk-api/
 │   │   ├── entities/
 │   │   │   ├── sector.entity.ts     # "sectors" table
 │   │   │   └── stock.entity.ts      # "stocks" table (-> sector)
+│   │   ├── dto/                     # list/filter/favourite payloads
 │   │   ├── stocks.seed.ts           # predefined sectors + stocks
-│   │   ├── stocks.controller.ts     # GET / sectors / search
-│   │   ├── stocks.service.ts        # seeding + queries + search
+│   │   ├── stocks.controller.ts     # GET /stocks, search, favourites
+│   │   ├── sectors.controller.ts    # GET /sectors, sector stocks
+│   │   ├── stocks.service.ts        # seeding + stock queries
+│   │   ├── sectors.service.ts       # sector queries
 │   │   └── stocks.module.ts
 │   ├── follows/
 │   │   ├── entities/
@@ -430,7 +474,7 @@ users        — accounts + profile
 sectors      — predefined market sectors
 stocks       — predefined tickers (-> sector)
 follows      — polymorphic: a user follows a stock | sector | user
-posts        — author -> user, optional -> sector, like/dislike/comment counts
+posts        — author -> user, optional -> sector & stock, like/dislike/comment counts
 post_reactions — one (user, post) row, type = like | dislike
 comments     — post -> comment, optional parent (one level of replies)
 ```
@@ -491,10 +535,11 @@ All routes require a Firebase ID token **except** those marked `@Public()`:
 | ----- | ------- |
 | `GET /` | Hello |
 | `GET /health`, `GET /api/health` | Health checks |
-| `GET /stocks`, `/stocks/favourites`, `/stocks/sectors`, `/stocks/search` | Stock metadata |
+| `GET /stocks`, `/stocks/:id`, `/stocks/favourites`, `/stocks/sectors`, `/stocks/search` | Stock metadata |
+| `GET /sectors`, `GET /sectors/:idOrSlug`, `GET /sectors/:idOrSlug/stocks` | Sector metadata |
 | `GET /posts`, `GET /posts/:id` | Public feed / post |
 | `GET /posts/:postId/comments` | Read comments |
-| `GET /users/check-username`, `GET /users/:id` | Username / public profile |
+| `GET /users/check-username`, `GET /users/search`, `GET /users/:id` | Username / search / public profile |
 | `GET /users/:userId/follows` | Public follow list |
 
 Protected routes use `@GetUser()` for `{ uid, email, roles, user }`. Actor IDs (posts, comments, reactions, follows, signed URLs) come from `auth.uid`, not from the request body.
@@ -646,11 +691,19 @@ gcloud run deploy stocktalk-api \
 
 ## Database migrations
 
-This release sets `users.id` to the Firebase UID and drops `firebase_uid`.
+Pending migrations include Firebase UID user IDs and **posts → stocks** linking
+(`posts.stock_id` nullable FK to `stocks`).
 
 ```bash
 npm run migration:run
 ```
+
+New migration file: `src/database/migrations/1756700000000-AddPostStockLink.ts`
+(adds `stock_id` on `posts` with index and `ON DELETE SET NULL`).
+
+Run migrations in production (`DB_SYNCHRONIZE=false`). Locally with
+`DB_SYNCHRONIZE=true`, TypeORM may add `stock_id` automatically; still run
+migrations on shared/staging databases for consistency.
 
 On live Cloud SQL (via proxy):
 
@@ -662,6 +715,16 @@ DB_HOST=127.0.0.1 DB_USERNAME=stocktalk DB_PASSWORD='...' DB_NAME=stocktalk npm 
 Keep a backup before running. Revert is not supported; restore from backup if needed.
 
 If `DB_SYNCHRONIZE=true` locally, TypeORM may apply schema changes automatically. Use `false` in production.
+
+---
+
+## Postman (manual & automated API tests)
+
+Import the collection and environments from the [`postman/`](postman/) folder. See **[postman/README.md](postman/README.md)** for:
+
+- Import steps
+- `baseUrl` and `firebaseIdToken` environment variables
+- Running the full ordered test suite with the Collection Runner (or Newman)
 
 ---
 
