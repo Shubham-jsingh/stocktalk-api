@@ -5,24 +5,24 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { Paginated } from '../common/types/paginated';
 import { FollowsService } from '../follows/follows.service';
 import { Sector } from '../stocks/entities/sector.entity';
+import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
 import { CreatePostDto } from './dto/create-post.dto';
 import { FeedQueryDto, FeedType } from './dto/feed-query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { Post } from './entities/post.entity';
 
-export interface Paginated<T> {
-  items: T[];
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
-
 // Sentinel meaning "the filter matched nothing, return an empty page".
 const EMPTY_FEED = Symbol('EMPTY_FEED');
+
+const POST_RELATIONS = {
+  author: true,
+  sector: true,
+  stock: { sector: true },
+};
 
 @Injectable()
 export class PostsService {
@@ -33,6 +33,8 @@ export class PostsService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Sector)
     private readonly sectorsRepository: Repository<Sector>,
+    @InjectRepository(Stock)
+    private readonly stocksRepository: Repository<Stock>,
     private readonly followsService: FollowsService,
   ) {}
 
@@ -53,6 +55,15 @@ export class PostsService {
       }
     }
 
+    if (dto.stockId) {
+      const stockExists = await this.stocksRepository.existsBy({
+        id: dto.stockId,
+      });
+      if (!stockExists) {
+        throw new NotFoundException(`Stock ${dto.stockId} not found`);
+      }
+    }
+
     const post = this.postsRepository.create({
       authorId,
       title: dto.title,
@@ -60,6 +71,7 @@ export class PostsService {
       imageUrl: dto.imageUrl ?? null,
       links: dto.links ?? [],
       sectorId: dto.sectorId ?? null,
+      stockId: dto.stockId ?? null,
     });
 
     const saved = await this.postsRepository.save(post);
@@ -67,7 +79,10 @@ export class PostsService {
   }
 
   async findOne(id: string): Promise<Post> {
-    const post = await this.postsRepository.findOne({ where: { id } });
+    const post = await this.postsRepository.findOne({
+      where: { id },
+      relations: POST_RELATIONS,
+    });
     if (!post) {
       throw new NotFoundException(`Post ${id} not found`);
     }
@@ -87,6 +102,15 @@ export class PostsService {
       });
       if (!sectorExists) {
         throw new NotFoundException(`Sector ${dto.sectorId} not found`);
+      }
+    }
+
+    if (dto.stockId) {
+      const stockExists = await this.stocksRepository.existsBy({
+        id: dto.stockId,
+      });
+      if (!stockExists) {
+        throw new NotFoundException(`Stock ${dto.stockId} not found`);
       }
     }
 
@@ -114,6 +138,7 @@ export class PostsService {
 
     const [items, total] = await this.postsRepository.findAndCount({
       where: where ?? {},
+      relations: POST_RELATIONS,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

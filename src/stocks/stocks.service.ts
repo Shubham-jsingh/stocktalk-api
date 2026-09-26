@@ -1,14 +1,19 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { Paginated } from '../common/types/paginated';
+import { ListStocksQueryDto } from './dto/list-stocks-query.dto';
 import { Sector } from './entities/sector.entity';
 import { Stock } from './entities/stock.entity';
 import { STOCK_SEED } from './stocks.seed';
+
+const STOCK_RELATIONS = { sector: true };
 
 @Injectable()
 export class StocksService implements OnModuleInit {
@@ -42,6 +47,7 @@ export class StocksService implements OnModuleInit {
           symbol: s.symbol.toUpperCase(),
           name: s.name,
           exchange: s.exchange,
+          sectorId: sector.id,
           sector,
         }),
       );
@@ -50,29 +56,85 @@ export class StocksService implements OnModuleInit {
     this.logger.log('Seeding complete.');
   }
 
-  findAllStocks(): Promise<Stock[]> {
-    return this.stocksRepository.find({ order: { symbol: 'ASC' } });
+  async findStocks(query: ListStocksQueryDto): Promise<Paginated<Stock>> {
+    const { page, limit, sectorId, sector } = query;
+    if (sectorId && sector) {
+      throw new BadRequestException(
+        'Use either sectorId or sector slug, not both',
+      );
+    }
+
+    let where: FindOptionsWhere<Stock> | FindOptionsWhere<Stock>[] = {};
+    if (sectorId) {
+      where = { sectorId };
+    } else if (sector) {
+      const sectorRow = await this.sectorsRepository.findOne({
+        where: { slug: sector },
+      });
+      if (!sectorRow) {
+        return { items: [], page, limit, total: 0, totalPages: 0 };
+      }
+      where = { sectorId: sectorRow.id };
+    }
+
+    const [items, total] = await this.stocksRepository.findAndCount({
+      where,
+      relations: STOCK_RELATIONS,
+      order: { symbol: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findOneStock(id: string): Promise<Stock> {
+    const stock = await this.stocksRepository.findOne({
+      where: { id },
+      relations: STOCK_RELATIONS,
+    });
+    if (!stock) {
+      throw new NotFoundException(`Stock ${id} not found`);
+    }
+    return stock;
   }
 
   findAllSectors(): Promise<Sector[]> {
     return this.sectorsRepository.find({ order: { name: 'ASC' } });
   }
 
-  // Prefix/contains search by symbol or company name. Caller enforces min length.
   searchStocks(query: string): Promise<Stock[]> {
     const term = `${query.trim()}%`;
     return this.stocksRepository.find({
       where: [{ symbol: ILike(term) }, { name: ILike(term) }],
+      relations: STOCK_RELATIONS,
       order: { symbol: 'ASC' },
       take: 20,
     });
   }
 
-  findFavourites(): Promise<Stock[]> {
-    return this.stocksRepository.find({
+  async findFavourites(query: ListStocksQueryDto): Promise<Paginated<Stock>> {
+    const { page, limit } = query;
+    const [items, total] = await this.stocksRepository.findAndCount({
       where: { isFavourite: true },
+      relations: STOCK_RELATIONS,
       order: { symbol: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async setFavourite(id: string, isFavourite: boolean): Promise<Stock> {
@@ -81,6 +143,7 @@ export class StocksService implements OnModuleInit {
       throw new NotFoundException(`Stock ${id} not found`);
     }
     stock.isFavourite = isFavourite;
-    return this.stocksRepository.save(stock);
+    const saved = await this.stocksRepository.save(stock);
+    return this.findOneStock(saved.id);
   }
 }

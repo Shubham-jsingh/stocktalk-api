@@ -10,7 +10,7 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { Comment } from './entities/comment.entity';
 import { Post } from './entities/post.entity';
-import { Paginated } from './posts.service';
+import { Paginated } from '../common/types/paginated';
 
 export interface CommentWithReplies {
   comment: Comment;

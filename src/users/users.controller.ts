@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -31,6 +32,18 @@ export class UsersController {
       query.username,
     );
     return { username: query.username, available };
+  }
+
+  @Public()
+  @Get('search')
+  search(@Query('q') q?: string) {
+    const term = (q ?? '').trim();
+    if (term.length < 3) {
+      throw new BadRequestException(
+        'Search query "q" must be at least 3 characters',
+      );
+    }
+    return this.usersService.searchUsers(term);
   }
 
   @Public()
