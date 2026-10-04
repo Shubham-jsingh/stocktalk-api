@@ -13,6 +13,8 @@ import { Stock } from '../../stocks/entities/stock.entity';
 import { User } from '../../users/entities/user.entity';
 
 @Entity('posts')
+@Index(['createdAt', 'id'])
+@Index(['authorId', 'createdAt', 'id'])
 export class Post {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -32,7 +34,7 @@ export class Post {
 
   // Author of the post. Indexed for the "following users" feed.
   @Index()
-  @ManyToOne(() => User, { onDelete: 'CASCADE', eager: true })
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'author_id' })
   author: User;
 
@@ -41,7 +43,7 @@ export class Post {
 
   // Optional sector this post belongs to. Indexed for the "following sectors" feed.
   @Index()
-  @ManyToOne(() => Sector, { onDelete: 'SET NULL', nullable: true, eager: true })
+  @ManyToOne(() => Sector, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'sector_id' })
   sector: Sector | null;
 

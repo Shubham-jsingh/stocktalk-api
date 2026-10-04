@@ -63,6 +63,10 @@ export class User {
   @Column({ name: 'profile_photo_url', type: 'varchar', nullable: true })
   profilePhotoUrl: string | null;
 
+  // Denormalized so "how many users follow this user" is a single column read.
+  @Column({ name: 'follower_count', type: 'int', default: 0 })
+  followerCount: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

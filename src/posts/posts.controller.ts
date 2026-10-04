@@ -9,7 +9,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { Public } from '../auth/decorators/public.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user';
 import { CreatePostDto } from './dto/create-post.dto';
 import { FeedQueryDto } from './dto/feed-query.dto';
@@ -25,13 +24,11 @@ export class PostsController {
     return this.postsService.create(auth.uid, dto);
   }
 
-  @Public()
   @Get()
-  feed(@Query() query: FeedQueryDto) {
-    return this.postsService.feed(query);
+  feed(@GetUser() auth: AuthUser, @Query() query: FeedQueryDto) {
+    return this.postsService.feed(auth.uid, query);
   }
 
-  @Public()
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.postsService.findOne(id);

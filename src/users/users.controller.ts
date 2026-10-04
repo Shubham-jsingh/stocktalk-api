@@ -9,7 +9,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { Public } from '../auth/decorators/public.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user';
 import { CheckUsernameDto } from './dto/check-username.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -25,7 +24,6 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
-  @Public()
   @Get('check-username')
   async checkUsername(@Query() query: CheckUsernameDto) {
     const available = await this.usersService.isUsernameAvailable(
@@ -34,7 +32,6 @@ export class UsersController {
     return { username: query.username, available };
   }
 
-  @Public()
   @Get('search')
   search(@Query('q') q?: string) {
     const term = (q ?? '').trim();
@@ -46,18 +43,13 @@ export class UsersController {
     return this.usersService.searchUsers(term);
   }
 
-  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
   }
 
-  @Patch(':id')
-  update(
-    @GetUser() auth: AuthUser,
-    @Param('id') id: string,
-    @Body() updateUserDto: UpdateUserDto,
-  ) {
-    return this.usersService.update(auth.uid, id, updateUserDto);
+  @Patch('me')
+  update(@GetUser() auth: AuthUser, @Body() updateUserDto: UpdateUserDto) {
+    return this.usersService.update(auth.uid, auth.uid, updateUserDto);
   }
 }

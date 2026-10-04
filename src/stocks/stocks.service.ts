@@ -6,14 +6,14 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { Paginated } from '../common/types/paginated';
 import { ListStocksQueryDto } from './dto/list-stocks-query.dto';
 import { Sector } from './entities/sector.entity';
 import { Stock } from './entities/stock.entity';
-import { STOCK_SEED } from './stocks.seed';
+import { EXTRA_STOCK_SECTORS, STOCK_SEED } from './stocks.seed';
 
-const STOCK_RELATIONS = { sector: true };
+const STOCK_RELATIONS = { sector: true, sectors: true };
 
 @Injectable()
 export class StocksService implements OnModuleInit {
@@ -34,6 +34,9 @@ export class StocksService implements OnModuleInit {
     }
 
     this.logger.log('Seeding predefined sectors and stocks...');
+    const sectorBySlug = new Map<string, Sector>();
+    const stockBySymbol = new Map<string, Stock>();
+
     for (const seedSector of STOCK_SEED) {
       const sector = await this.sectorsRepository.save(
         this.sectorsRepository.create({
@@ -41,18 +44,42 @@ export class StocksService implements OnModuleInit {
           slug: seedSector.slug,
         }),
       );
+      sectorBySlug.set(sector.slug, sector);
 
       const stocks = seedSector.stocks.map((s) =>
         this.stocksRepository.create({
           symbol: s.symbol.toUpperCase(),
           name: s.name,
           exchange: s.exchange,
+          about: s.about,
+          marketCap: s.marketCap,
           sectorId: sector.id,
           sector,
+          sectors: [sector],
         }),
       );
-      await this.stocksRepository.save(stocks);
+      const saved = await this.stocksRepository.save(stocks);
+      for (const stock of saved) {
+        stockBySymbol.set(stock.symbol, stock);
+      }
     }
+
+    for (const extra of EXTRA_STOCK_SECTORS) {
+      const stock = stockBySymbol.get(extra.symbol);
+      if (!stock) {
+        continue;
+      }
+      const extras = extra.slugs
+        .map((slug) => sectorBySlug.get(slug))
+        .filter((sector): sector is Sector => Boolean(sector));
+      const known = new Set((stock.sectors ?? []).map((sector) => sector.id));
+      stock.sectors = [
+        ...(stock.sectors ?? []),
+        ...extras.filter((sector) => !known.has(sector.id)),
+      ];
+      await this.stocksRepository.save(stock);
+    }
+
     this.logger.log('Seeding complete.');
   }
 
@@ -64,34 +91,26 @@ export class StocksService implements OnModuleInit {
       );
     }
 
-    let where: FindOptionsWhere<Stock> | FindOptionsWhere<Stock>[] = {};
-    if (sectorId) {
-      where = { sectorId };
-    } else if (sector) {
-      const sectorRow = await this.sectorsRepository.findOne({
-        where: { slug: sector },
-      });
-      if (!sectorRow) {
-        return { items: [], page, limit, total: 0, totalPages: 0 };
-      }
-      where = { sectorId: sectorRow.id };
+    const membershipSectorId = await this.resolveSectorFilter(sectorId, sector);
+    if (membershipSectorId === null) {
+      return { items: [], page, limit, total: 0, totalPages: 0 };
+    }
+
+    if (membershipSectorId) {
+      return this.pageStocks((qb) => {
+        qb.andWhere(this.sectorMembershipSql(), {
+          sectorId: membershipSectorId,
+        });
+      }, page, limit);
     }
 
     const [items, total] = await this.stocksRepository.findAndCount({
-      where,
       relations: STOCK_RELATIONS,
       order: { symbol: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
-
-    return {
-      items,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    };
+    return this.page(items, total, page, limit);
   }
 
   async findOneStock(id: string): Promise<Stock> {
@@ -111,12 +130,15 @@ export class StocksService implements OnModuleInit {
 
   searchStocks(query: string): Promise<Stock[]> {
     const term = `${query.trim()}%`;
-    return this.stocksRepository.find({
-      where: [{ symbol: ILike(term) }, { name: ILike(term) }],
-      relations: STOCK_RELATIONS,
-      order: { symbol: 'ASC' },
-      take: 20,
-    });
+    return this.stocksRepository
+      .createQueryBuilder('stock')
+      .leftJoinAndSelect('stock.sector', 'primarySector')
+      .leftJoinAndSelect('stock.sectors', 'sectors')
+      .where('stock.symbol ILIKE :term', { term })
+      .orWhere('stock.name ILIKE :term', { term })
+      .orderBy('stock.symbol', 'ASC')
+      .take(20)
+      .getMany();
   }
 
   async findFavourites(query: ListStocksQueryDto): Promise<Paginated<Stock>> {
@@ -128,13 +150,7 @@ export class StocksService implements OnModuleInit {
       skip: (page - 1) * limit,
       take: limit,
     });
-    return {
-      items,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    };
+    return this.page(items, total, page, limit);
   }
 
   async setFavourite(id: string, isFavourite: boolean): Promise<Stock> {
@@ -145,5 +161,71 @@ export class StocksService implements OnModuleInit {
     stock.isFavourite = isFavourite;
     const saved = await this.stocksRepository.save(stock);
     return this.findOneStock(saved.id);
+  }
+
+  private async resolveSectorFilter(
+    sectorId?: string,
+    slug?: string,
+  ): Promise<string | undefined | null> {
+    if (sectorId) {
+      return sectorId;
+    }
+    if (!slug) {
+      return undefined;
+    }
+    const sectorRow = await this.sectorsRepository.findOne({
+      where: { slug },
+    });
+    return sectorRow ? sectorRow.id : null;
+  }
+
+  private sectorMembershipSql(): string {
+    return `(stock.id IN (
+      SELECT ss.stock_id FROM stock_sectors ss WHERE ss.sector_id = :sectorId
+    ) OR stock.sector_id = :sectorId)`;
+  }
+
+  private async pageStocks(
+    apply: (qb: SelectQueryBuilder<Stock>) => void,
+    page: number,
+    limit: number,
+  ): Promise<Paginated<Stock>> {
+    const idsQuery = this.stocksRepository
+      .createQueryBuilder('stock')
+      .select('stock.id', 'id')
+      .orderBy('stock.symbol', 'ASC');
+    apply(idsQuery);
+
+    const total = await idsQuery.clone().getCount();
+    const rawIds = await idsQuery
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany<{ id: string }>();
+    const ids = rawIds.map((row) => row.id);
+    if (!ids.length) {
+      return this.page([], total, page, limit);
+    }
+
+    const items = await this.stocksRepository.find({
+      where: { id: In(ids) },
+      relations: STOCK_RELATIONS,
+      order: { symbol: 'ASC' },
+    });
+    return this.page(items, total, page, limit);
+  }
+
+  private page(
+    items: Stock[],
+    total: number,
+    page: number,
+    limit: number,
+  ): Paginated<Stock> {
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }
