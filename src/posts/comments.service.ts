@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -76,7 +76,11 @@ export class CommentsService {
         1,
       );
 
-      return comments.findOneOrFail({ where: { id: saved.id } });
+      const created = await comments.findOneOrFail({
+        where: { id: saved.id },
+        relations: { author: true },
+      });
+      return this.stripAuthor(created);
     });
   }
 
@@ -90,6 +94,7 @@ export class CommentsService {
 
     const [topLevel, total] = await this.commentsRepository.findAndCount({
       where: { postId, parentId: IsNull() },
+      relations: { author: true },
       order: { createdAt: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -98,14 +103,17 @@ export class CommentsService {
     const parentIds = topLevel.map((c) => c.id);
     const replies = parentIds.length
       ? await this.commentsRepository.find({
-          where: parentIds.map((id) => ({ parentId: id })),
+          where: { parentId: In(parentIds) },
+          relations: { author: true },
           order: { createdAt: 'ASC' },
         })
       : [];
 
     const items: CommentWithReplies[] = topLevel.map((comment) => ({
-      comment,
-      replies: replies.filter((r) => r.parentId === comment.id),
+      comment: this.stripAuthor(comment),
+      replies: replies
+        .filter((reply) => reply.parentId === comment.id)
+        .map((reply) => this.stripAuthor(reply)),
     }));
 
     return {
@@ -115,6 +123,13 @@ export class CommentsService {
       total,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  private stripAuthor(comment: Comment): Comment {
+    if (comment.author) {
+      delete (comment.author as { password?: string | null }).password;
+    }
+    return comment;
   }
 
   private async ensurePost(postId: string): Promise<void> {

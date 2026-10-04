@@ -165,8 +165,8 @@ stocktalk-api running on http://localhost:3000
 | `POST   /storage/signed-url`                   | GCS write signed URL (Firebase token)    |
 | `GET    /users/check-username?username=`       | Check if a username is available         |
 | `GET    /users/search?q=`                      | Search users by username or name (prefix, min 3 chars) |
-| `GET    /users/:id`                            | Get a user's details                     |
-| `PATCH  /users/:id`                            | Edit a user's profile                    |
+| `GET    /users/:id`                            | Get a user's details (includes `followerCount`) |
+| `PATCH  /users/me`                             | Edit the logged-in user's profile        |
 | `GET    /stocks?page=&limit=&sectorId=&sector=` | Paginated stocks (optional sector filter) |
 | `GET    /stocks/:id`                           | Single stock (includes sector)           |
 | `GET    /stocks/favourites?page=&limit=`       | Paginated favourite stocks               |
@@ -176,15 +176,15 @@ stocktalk-api running on http://localhost:3000
 | `GET    /sectors?page=&limit=`                 | Paginated sectors                        |
 | `GET    /sectors/:idOrSlug`                    | Single sector by UUID or slug             |
 | `GET    /sectors/:idOrSlug/stocks?page=&limit=` | Paginated stocks in a sector            |
-| `GET    /users/:userId/follows`                | List a user's followed stocks/sectors/users |
-| `POST   /users/:userId/follows/stocks/:stockId`| Follow a stock                           |
-| `DELETE /users/:userId/follows/stocks/:stockId`| Unfollow a stock                         |
-| `POST   /users/:userId/follows/sectors/:sectorId`| Follow a sector                        |
-| `DELETE /users/:userId/follows/sectors/:sectorId`| Unfollow a sector                      |
-| `POST   /users/:userId/follows/users/:targetUserId`| Follow another user                  |
-| `DELETE /users/:userId/follows/users/:targetUserId`| Unfollow another user                |
+| `GET    /follows`                              | List stocks, sectors, and users you follow |
+| `POST   /follows/stocks/:stockId`              | Follow a stock                           |
+| `DELETE /follows/stocks/:stockId`              | Unfollow a stock                         |
+| `POST   /follows/sectors/:sectorId`            | Follow a sector                          |
+| `DELETE /follows/sectors/:sectorId`            | Unfollow a sector                        |
+| `POST   /follows/users/:targetUserId`          | Follow another user                      |
+| `DELETE /follows/users/:targetUserId`          | Unfollow another user                    |
 | `POST   /posts`                                | Create a post                            |
-| `GET    /posts?feed=&userId=&page=&limit=`     | Paginated feed (all/following users/sectors) |
+| `GET    /posts?feed=&sectorIds=&stockIds=&order=&page=&limit=` | Paginated feed. Following modes use the token user |
 | `GET    /posts/:id`                            | Get a single post                        |
 | `PATCH  /posts/:id`                            | Edit a post (author only)                |
 | `POST   /posts/:postId/like`                   | Like a post                              |
@@ -251,25 +251,77 @@ Returns `400` if `q` is shorter than 3 characters.
 
 #### Get user details — `GET /users/:id`
 
-Returns `200` with the user, or `404` if not found.
+Returns `200` with the user, or `404` if not found. `followerCount` is how many users follow this user. It is updated when someone follows or unfollows them.
 
-#### Edit user — `PATCH /users/:id`
+```json
+{
+  "id": "firebase-uid",
+  "username": "trader_joe",
+  "email": "joe@example.com",
+  "fullName": "Joe",
+  "followerCount": 12,
+  "bio": null,
+  "investingStyle": null,
+  "profilePhotoUrl": null
+}
+```
 
-Send only the fields you want to change (all optional). Username, email, and
-password are intentionally **not** editable here. Omitted fields are preserved.
+#### Edit user — `PATCH /users/me`
+
+Updates the user in the Firebase token. Send only the fields you want to change. Username, email, and password are not editable here.
 
 ```bash
-curl -X PATCH http://localhost:3000/users/<id> \
+curl -X PATCH http://localhost:3000/users/me \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
   -d '{"bio":"value + dividends","investingStyle":"dividend"}'
 ```
 
-Returns `200` with the updated user, or `404` if not found.
+Returns `200` with the updated user.
 
 ### Stocks & sectors (predefined, seeded on startup)
 
-Stocks belong to an optional sector (`sectorId` + nested `sector` when loaded).
+A stock can belong to **many sectors**, and a sector can contain **many stocks**.
+That membership is stored in `stock_sectors` (composite primary key, indexed by sector).
+`sectorId` / `sector` on a stock is still the **primary** sector, so older clients keep working.
+`sectors` is the full list. `followerCount` on a stock or sector is how many users follow it.
+
 List endpoints return **paginated** JSON (`page` default `1`, `limit` default `10`, max `50`).
+`GET /stocks?sector=` and `GET /sectors/:slug/stocks` include every stock linked to that sector, not only the primary one.
+
+**Sector response**
+
+```json
+{
+  "id": "sector-uuid",
+  "name": "Technology",
+  "slug": "technology",
+  "followerCount": 4
+}
+```
+
+**Stock response**
+
+```json
+{
+  "id": "stock-uuid",
+  "symbol": "AMZN",
+  "name": "Amazon.com Inc.",
+  "exchange": "NASDAQ",
+  "isFavourite": false,
+  "about": "Operates e-commerce, AWS cloud, advertising, and subscription services.",
+  "marketCap": "1900000000000",
+  "followerCount": 8,
+  "sectorId": "consumer-uuid",
+  "sector": { "id": "consumer-uuid", "name": "Consumer Discretionary", "slug": "consumer-discretionary", "followerCount": 2 },
+  "sectors": [
+    { "id": "consumer-uuid", "slug": "consumer-discretionary" },
+    { "id": "tech-uuid", "slug": "technology" }
+  ]
+}
+```
+
+`marketCap` is USD as a string (PostgreSQL `bigint`). `about` may be `null`.
 
 ```bash
 # Paginated stocks (optional filter by sector UUID or slug)
@@ -311,25 +363,37 @@ Each stock has an `isFavourite` boolean (default `false`).
 
 ### Follows
 
+The signed-in user comes from the Bearer token. Do not put a user id in the path.
+
 ```bash
 # Follow a stock / sector / user  (201)
-curl -X POST http://localhost:3000/users/<firebaseUid>/follows/stocks/<stockId> \
+curl -X POST http://localhost:3000/follows/stocks/<stockId> \
   -H "Authorization: Bearer <firebase-id-token>"
-curl -X POST http://localhost:3000/users/<firebaseUid>/follows/sectors/<sectorId> \
+curl -X POST http://localhost:3000/follows/sectors/<sectorId> \
   -H "Authorization: Bearer <firebase-id-token>"
-curl -X POST http://localhost:3000/users/<firebaseUid>/follows/users/<targetFirebaseUid> \
+curl -X POST http://localhost:3000/follows/users/<targetFirebaseUid> \
   -H "Authorization: Bearer <firebase-id-token>"
 
-# List follows -> { "stocks": [...], "sectors": [...], "users": [...] }
-curl http://localhost:3000/users/<firebaseUid>/follows
+# List your follows -> { "stocks": [...], "sectors": [...], "users": [...] }
+curl http://localhost:3000/follows \
+  -H "Authorization: Bearer <firebase-id-token>"
 
 # Unfollow  (204 No Content)
-curl -X DELETE http://localhost:3000/users/<firebaseUid>/follows/stocks/<stockId> \
+curl -X DELETE http://localhost:3000/follows/stocks/<stockId> \
   -H "Authorization: Bearer <firebase-id-token>"
 ```
 
-Following the same target twice is idempotent (returns the existing follow).
+Following the same target twice is idempotent (returns the existing follow and does not change the count).
+Unfollow returns `204` and decreases `followerCount` (it never goes below 0).
 Unknown user/stock/sector returns `404`; following yourself returns `400`.
+
+```json
+{
+  "stocks": [{ "id": "...", "symbol": "AAPL", "about": "...", "marketCap": "3400000000000", "followerCount": 3, "sectors": [] }],
+  "sectors": [{ "id": "...", "slug": "technology", "followerCount": 5 }],
+  "users": [{ "id": "firebase-uid", "username": "trader_joe", "followerCount": 1 }]
+}
+```
 
 ### Posts
 
@@ -359,18 +423,50 @@ curl -X PATCH http://localhost:3000/posts/<postId> \
 
 #### Feed (paginated)
 
-`GET /posts?feed=<mode>&userId=<id>&page=1&limit=10`
+`GET /posts?feed=<mode>&sectorIds=<id>,<id>&stockIds=<id>&order=desc&limit=10&cursor=<opaque>`
+
+Every feed call needs `Authorization: Bearer <firebase-id-token>`. Following modes use that token's user. There is no `userId` query parameter. The feed uses **cursor pagination** (keyset on `createdAt` + `id`), not page offsets. Pass `nextCursor` from the previous response as `cursor`. Omit `cursor` for the first page.
 
 | `feed` mode          | Returns                                            |
 | -------------------- | -------------------------------------------------- |
 | `all` (default)      | All posts, newest first                            |
-| `following_users`    | Posts by users that `userId` follows               |
-| `following_sectors`  | Posts in sectors that `userId` follows             |
+| `following_users`    | Posts by users the token user follows (empty if none) |
+| `following_sectors`  | Posts in sectors the token user follows (empty if none) |
+| `following`          | Posts by followed users, in followed sectors, or about followed stocks. If that set is empty, the latest posts overall (`fallback: true`) |
 
-`userId` is required for the two `following_*` modes. Response shape:
+`sectorIds` and `stockIds` are optional comma-separated UUID lists (max 20 each). On `feed=all` a post matches if its sector **or** its stock is in those lists. Example: posts about Technology or AAPL.
+
+`order` is `desc` (default, newest first) or `asc`.
+
+Response when the followed feed has matches:
 
 ```json
-{ "items": [ ... ], "page": 1, "limit": 10, "total": 42, "totalPages": 5 }
+{
+  "items": [ { "id": "...", "title": "...", "sectorId": "...", "stockId": "...", "likeCount": 0, "createdAt": "..." } ],
+  "limit": 10,
+  "nextCursor": "opaque-or-null"
+}
+```
+
+`nextCursor` is `null` on the last page. Author objects never include `password`.
+
+Response when `feed=following` has nothing to show (no follows, or no posts for those follows):
+
+```json
+{ "items": [], "limit": 10, "nextCursor": null, "fallback": true }
+```
+
+When `fallback` is true, `items` are the latest posts overall.
+
+```bash
+curl "http://localhost:3000/posts?sectorIds=<sectorId>&stockIds=<stockId>&order=desc&limit=10" \
+  -H "Authorization: Bearer <firebase-id-token>"
+
+curl "http://localhost:3000/posts?feed=following&limit=10" \
+  -H "Authorization: Bearer <firebase-id-token>"
+
+curl "http://localhost:3000/posts?feed=following&limit=10&cursor=<nextCursor>" \
+  -H "Authorization: Bearer <firebase-id-token>"
 ```
 
 ### Likes / Dislikes
@@ -473,8 +569,13 @@ stocktalk-api/
 users        — accounts + profile
 sectors      — predefined market sectors
 stocks       — predefined tickers (-> sector)
-follows      — polymorphic: a user follows a stock | sector | user
+user_follows   — follower_id -> followee_id (real foreign keys)
+stock_follows  — user_id -> stock_id
+sector_follows — user_id -> sector_id
 posts        — author -> user, optional -> sector & stock, like/dislike/comment counts
+stock_sectors — many-to-many stock <-> sector (stock_id, sector_id)
+users/stocks/sectors.follower_count — denormalized follow counts
+stocks.about, stocks.market_cap — company description and USD market cap
 post_reactions — one (user, post) row, type = like | dislike
 comments     — post -> comment, optional parent (one level of replies)
 ```
@@ -529,20 +630,14 @@ Returns `{ uid, email, roles, user }` for the current Firebase user.
 
 ### Public vs protected
 
-All routes require a Firebase ID token **except** those marked `@Public()`:
+Every route that reads or writes the database requires a Firebase ID token. Only the health checks are public:
 
 | Route | Purpose |
 | ----- | ------- |
 | `GET /` | Hello |
 | `GET /health`, `GET /api/health` | Health checks |
-| `GET /stocks`, `/stocks/:id`, `/stocks/favourites`, `/stocks/sectors`, `/stocks/search` | Stock metadata |
-| `GET /sectors`, `GET /sectors/:idOrSlug`, `GET /sectors/:idOrSlug/stocks` | Sector metadata |
-| `GET /posts`, `GET /posts/:id` | Public feed / post |
-| `GET /posts/:postId/comments` | Read comments |
-| `GET /users/check-username`, `GET /users/search`, `GET /users/:id` | Username / search / public profile |
-| `GET /users/:userId/follows` | Public follow list |
 
-Protected routes use `@GetUser()` for `{ uid, email, roles, user }`. Actor IDs (posts, comments, reactions, follows, signed URLs) come from `auth.uid`, not from the request body.
+The signed-in user is `auth.uid` from the token. Feeds, follows, profile edits, posts, comments, reactions, and signed URLs use that id. Do not send your own user id in the query or path. `GET /users/:id` still takes an id when you want **another** user's profile.
 
 Error shape:
 
@@ -691,19 +786,25 @@ gcloud run deploy stocktalk-api \
 
 ## Database migrations
 
-Pending migrations include Firebase UID user IDs and **posts → stocks** linking
-(`posts.stock_id` nullable FK to `stocks`).
+Pending migrations include Firebase UID user IDs, **posts → stocks**
+(`posts.stock_id`), and **stock ↔ sector many-to-many** plus follower counts.
 
 ```bash
 npm run migration:run
 ```
 
-New migration file: `src/database/migrations/1756700000000-AddPostStockLink.ts`
-(adds `stock_id` on `posts` with index and `ON DELETE SET NULL`).
+New migration files:
 
-Run migrations in production (`DB_SYNCHRONIZE=false`). Locally with
-`DB_SYNCHRONIZE=true`, TypeORM may add `stock_id` automatically; still run
-migrations on shared/staging databases for consistency.
+- `src/database/migrations/1756800000000-StockSectorsAndFollowerCounts.ts`
+- `src/database/migrations/1756900000000-FollowTablesAndFeedIndexes.ts` — drops mock `follows` rows, creates `user_follows` / `stock_follows` / `sector_follows`, and adds feed indexes on `posts` and `comments`
+- `src/database/migrations/1757000000000-MoveAboutMarketCapToStocks.ts` — moves `about` and `market_cap` from `sectors` to `stocks`
+
+- `stock_sectors` (`stock_id`, `sector_id`) and copies existing `stocks.sector_id`
+- `stocks.about`, `stocks.market_cap`
+- `follower_count` on `users`, `stocks`, and `sectors` (backfilled from `follows`)
+- index `follows (target_type, target_id)`
+
+Run migrations in production (`DB_SYNCHRONIZE=false`) **before** deploying this API. See `docs/production-migrations.md`.
 
 On live Cloud SQL (via proxy):
 

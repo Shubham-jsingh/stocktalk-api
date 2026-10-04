@@ -8,16 +8,21 @@ import { In, Repository } from 'typeorm';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
-import { Follow, FollowTargetType } from './entities/follow.entity';
+import { SectorFollow } from './entities/sector-follow.entity';
+import { StockFollow } from './entities/stock-follow.entity';
+import { UserFollow } from './entities/user-follow.entity';
 
-// User shape without the password field.
 type PublicUser = Omit<User, 'password'>;
 
 @Injectable()
 export class FollowsService {
   constructor(
-    @InjectRepository(Follow)
-    private readonly followsRepository: Repository<Follow>,
+    @InjectRepository(UserFollow)
+    private readonly userFollows: Repository<UserFollow>,
+    @InjectRepository(StockFollow)
+    private readonly stockFollows: Repository<StockFollow>,
+    @InjectRepository(SectorFollow)
+    private readonly sectorFollows: Repository<SectorFollow>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Stock)
@@ -26,37 +31,55 @@ export class FollowsService {
     private readonly sectorsRepository: Repository<Sector>,
   ) {}
 
-  async followStock(userId: string, stockId: string): Promise<Follow> {
+  async followStock(userId: string, stockId: string): Promise<StockFollow> {
     await this.ensureUser(userId);
-    const stock = await this.stocksRepository.findOne({
-      where: { id: stockId },
-    });
+    const stock = await this.stocksRepository.existsBy({ id: stockId });
     if (!stock) {
       throw new NotFoundException(`Stock ${stockId} not found`);
     }
-    return this.upsertFollow(userId, FollowTargetType.STOCK, stockId);
+    return this.insertFollow(
+      this.stockFollows,
+      { userId, stockId },
+      'stocks',
+      stockId,
+    );
   }
 
   async unfollowStock(userId: string, stockId: string): Promise<void> {
-    await this.removeFollow(userId, FollowTargetType.STOCK, stockId);
+    await this.deleteFollow(
+      this.stockFollows,
+      { userId, stockId },
+      'stocks',
+      stockId,
+      userId,
+    );
   }
 
-  async followSector(userId: string, sectorId: string): Promise<Follow> {
+  async followSector(userId: string, sectorId: string): Promise<SectorFollow> {
     await this.ensureUser(userId);
-    const sector = await this.sectorsRepository.findOne({
-      where: { id: sectorId },
-    });
+    const sector = await this.sectorsRepository.existsBy({ id: sectorId });
     if (!sector) {
       throw new NotFoundException(`Sector ${sectorId} not found`);
     }
-    return this.upsertFollow(userId, FollowTargetType.SECTOR, sectorId);
+    return this.insertFollow(
+      this.sectorFollows,
+      { userId, sectorId },
+      'sectors',
+      sectorId,
+    );
   }
 
   async unfollowSector(userId: string, sectorId: string): Promise<void> {
-    await this.removeFollow(userId, FollowTargetType.SECTOR, sectorId);
+    await this.deleteFollow(
+      this.sectorFollows,
+      { userId, sectorId },
+      'sectors',
+      sectorId,
+      userId,
+    );
   }
 
-  async followUser(userId: string, targetUserId: string): Promise<Follow> {
+  async followUser(userId: string, targetUserId: string): Promise<UserFollow> {
     if (userId === targetUserId) {
       throw new BadRequestException('You cannot follow yourself');
     }
@@ -65,50 +88,65 @@ export class FollowsService {
     if (!target) {
       throw new NotFoundException(`User ${targetUserId} not found`);
     }
-    return this.upsertFollow(userId, FollowTargetType.USER, targetUserId);
+    return this.insertFollow(
+      this.userFollows,
+      { followerId: userId, followeeId: targetUserId },
+      'users',
+      targetUserId,
+    );
   }
 
   async unfollowUser(userId: string, targetUserId: string): Promise<void> {
-    await this.removeFollow(userId, FollowTargetType.USER, targetUserId);
+    await this.deleteFollow(
+      this.userFollows,
+      { followerId: userId, followeeId: targetUserId },
+      'users',
+      targetUserId,
+      userId,
+    );
   }
 
-  // Returns the IDs of users that the given user follows. Used by the feed.
   async getFollowedUserIds(userId: string): Promise<string[]> {
-    const follows = await this.followsRepository.find({
-      where: { userId, targetType: FollowTargetType.USER },
+    const rows = await this.userFollows.find({
+      where: { followerId: userId },
+      select: { followerId: true, followeeId: true },
     });
-    return follows.map((f) => f.targetId);
+    return rows.map((row) => row.followeeId);
   }
 
-  // Returns the IDs of sectors that the given user follows. Used by the feed.
   async getFollowedSectorIds(userId: string): Promise<string[]> {
-    const follows = await this.followsRepository.find({
-      where: { userId, targetType: FollowTargetType.SECTOR },
+    const rows = await this.sectorFollows.find({
+      where: { userId },
+      select: { userId: true, sectorId: true },
     });
-    return follows.map((f) => f.targetId);
+    return rows.map((row) => row.sectorId);
   }
 
-  // Returns the resolved stocks, sectors, and users a user follows.
+  async getFollowedStockIds(userId: string): Promise<string[]> {
+    const rows = await this.stockFollows.find({
+      where: { userId },
+      select: { userId: true, stockId: true },
+    });
+    return rows.map((row) => row.stockId);
+  }
+
   async listFollows(userId: string): Promise<{
     stocks: Stock[];
     sectors: Sector[];
     users: PublicUser[];
   }> {
     await this.ensureUser(userId);
-    const follows = await this.followsRepository.find({ where: { userId } });
-
-    const idsByType = (type: FollowTargetType) =>
-      follows.filter((f) => f.targetType === type).map((f) => f.targetId);
-
-    const stockIds = idsByType(FollowTargetType.STOCK);
-    const sectorIds = idsByType(FollowTargetType.SECTOR);
-    const userIds = idsByType(FollowTargetType.USER);
+    const [stockIds, sectorIds, userIds] = await Promise.all([
+      this.getFollowedStockIds(userId),
+      this.getFollowedSectorIds(userId),
+      this.getFollowedUserIds(userId),
+    ]);
 
     const [stocks, sectors, users] = await Promise.all([
       stockIds.length
         ? this.stocksRepository.find({
             where: { id: In(stockIds) },
-            relations: { sector: true },
+            relations: { sector: true, sectors: true },
           })
         : Promise.resolve([]),
       sectorIds.length
@@ -122,7 +160,7 @@ export class FollowsService {
     return {
       stocks,
       sectors,
-      users: users.map((u) => this.stripPassword(u)),
+      users: users.map((user) => this.stripPassword(user)),
     };
   }
 
@@ -138,28 +176,44 @@ export class FollowsService {
     }
   }
 
-  private async upsertFollow(
-    userId: string,
-    targetType: FollowTargetType,
-    targetId: string,
-  ): Promise<Follow> {
-    const existing = await this.followsRepository.findOne({
-      where: { userId, targetType, targetId },
-    });
+  private async insertFollow<T extends object>(
+    repo: Repository<T>,
+    keys: object,
+    countTable: 'users' | 'stocks' | 'sectors',
+    countId: string,
+  ): Promise<T> {
+    const existing = await repo.findOne({ where: keys as never });
     if (existing) {
       return existing;
     }
-    return this.followsRepository.save(
-      this.followsRepository.create({ userId, targetType, targetId }),
-    );
+    const saved = await repo.save(repo.create(keys as never));
+    await this.adjustFollowerCount(repo, countTable, countId, 1);
+    return saved as T;
   }
 
-  private async removeFollow(
-    userId: string,
-    targetType: FollowTargetType,
-    targetId: string,
+  private async deleteFollow<T extends object>(
+    repo: Repository<T>,
+    keys: object,
+    countTable: 'users' | 'stocks' | 'sectors',
+    countId: string,
+    actorId: string,
   ): Promise<void> {
-    await this.ensureUser(userId);
-    await this.followsRepository.delete({ userId, targetType, targetId });
+    await this.ensureUser(actorId);
+    const result = await repo.delete(keys as never);
+    if (result.affected) {
+      await this.adjustFollowerCount(repo, countTable, countId, -1);
+    }
+  }
+
+  private async adjustFollowerCount(
+    repo: Repository<object>,
+    table: 'users' | 'stocks' | 'sectors',
+    id: string,
+    delta: number,
+  ): Promise<void> {
+    await repo.query(
+      `UPDATE "${table}" SET follower_count = GREATEST(follower_count + $1, 0) WHERE id = $2`,
+      [delta, id],
+    );
   }
 }

@@ -4,8 +4,9 @@ import { Repository } from 'typeorm';
 import { Paginated } from '../common/types/paginated';
 import { ListSectorsQueryDto } from './dto/list-sectors-query.dto';
 import { ListStocksQueryDto } from './dto/list-stocks-query.dto';
-import { Sector } from './entities/sector.entity';
 import { Stock } from './entities/stock.entity';
+import { Sector } from './entities/sector.entity';
+import { StocksService } from './stocks.service';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,8 +16,7 @@ export class SectorsService {
   constructor(
     @InjectRepository(Sector)
     private readonly sectorsRepository: Repository<Sector>,
-    @InjectRepository(Stock)
-    private readonly stocksRepository: Repository<Stock>,
+    private readonly stocksService: StocksService,
   ) {}
 
   async findAll(query: ListSectorsQueryDto): Promise<Paginated<Sector>> {
@@ -50,23 +50,11 @@ export class SectorsService {
     query: ListStocksQueryDto,
   ): Promise<Paginated<Stock>> {
     const sector = await this.findOneByIdOrSlug(idOrSlug);
-    const { page, limit } = query;
-
-    const [items, total] = await this.stocksRepository.findAndCount({
-      where: { sectorId: sector.id },
-      relations: { sector: true },
-      order: { symbol: 'ASC' },
-      skip: (page - 1) * limit,
-      take: limit,
+    return this.stocksService.findStocks({
+      page: query.page,
+      limit: query.limit,
+      sectorId: sector.id,
     });
-
-    return {
-      items,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    };
   }
 
   private whereIdOrSlug(idOrSlug: string): { id: string } | { slug: string } {

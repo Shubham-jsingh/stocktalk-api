@@ -6,7 +6,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { FirebaseAuthGuard } from './auth/guards/firebase-auth.guard';
-import { Follow } from './follows/entities/follow.entity';
+import { SectorFollow } from './follows/entities/sector-follow.entity';
+import { StockFollow } from './follows/entities/stock-follow.entity';
+import { UserFollow } from './follows/entities/user-follow.entity';
 import { FollowsModule } from './follows/follows.module';
 import { Comment } from './posts/entities/comment.entity';
 import { PostReaction } from './posts/entities/post-reaction.entity';
@@ -42,7 +44,17 @@ import { UsersModule } from './users/users.module';
           username: config.get<string>('DB_USERNAME'),
           password: config.get<string>('DB_PASSWORD'),
           database: config.get<string>('DB_NAME'),
-          entities: [User, Stock, Sector, Follow, Post, PostReaction, Comment],
+          entities: [
+            User,
+            Stock,
+            Sector,
+            UserFollow,
+            StockFollow,
+            SectorFollow,
+            Post,
+            PostReaction,
+            Comment,
+          ],
           synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
         };
       },

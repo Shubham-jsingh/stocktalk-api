@@ -14,6 +14,7 @@ import { Post } from './post.entity';
 // Comments are at most one level deep: a comment is either top-level
 // (parentId = null) or a direct reply to a top-level comment.
 @Entity('comments')
+@Index(['postId', 'parentId', 'createdAt'])
 export class Comment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -26,7 +27,7 @@ export class Comment {
   @Column({ name: 'post_id' })
   postId: string;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE', eager: true })
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'author_id' })
   author: User;
 
