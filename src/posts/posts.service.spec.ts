@@ -29,6 +29,10 @@ describe('PostsService feed', () => {
     getFollowedSectorIds: jest.fn(),
     getFollowedStockIds: jest.fn(),
   };
+  const mentionsService = {
+    attachToPosts: jest.fn().mockResolvedValue(undefined),
+  };
+  const dataSource = {};
 
   const service = new PostsService(
     postsRepository as never,
@@ -36,6 +40,8 @@ describe('PostsService feed', () => {
     sectorsRepository as never,
     stocksRepository as never,
     followsService as never,
+    mentionsService as never,
+    dataSource as never,
   );
 
   const query = { limit: 10, order: FeedOrder.DESC };

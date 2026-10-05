@@ -7,8 +7,11 @@ import { User } from '../users/entities/user.entity';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 import { Comment } from './entities/comment.entity';
+import { CommentMention } from './entities/comment-mention.entity';
 import { PostReaction } from './entities/post-reaction.entity';
+import { PostMention } from './entities/post-mention.entity';
 import { Post } from './entities/post.entity';
+import { MentionsService } from './mentions.service';
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
 import { ReactionsController } from './reactions.controller';
@@ -16,10 +19,19 @@ import { ReactionsService } from './reactions.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Post, PostReaction, Comment, User, Sector, Stock]),
+    TypeOrmModule.forFeature([
+      Post,
+      PostMention,
+      PostReaction,
+      Comment,
+      CommentMention,
+      User,
+      Sector,
+      Stock,
+    ]),
     FollowsModule,
   ],
   controllers: [PostsController, ReactionsController, CommentsController],
-  providers: [PostsService, ReactionsService, CommentsService],
+  providers: [PostsService, ReactionsService, CommentsService, MentionsService],
 })
 export class PostsModule {}

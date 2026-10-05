@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 import { FeedPage } from '../common/types/feed-page';
 import { FollowsService } from '../follows/follows.service';
 import { Sector } from '../stocks/entities/sector.entity';
@@ -16,6 +16,7 @@ import { FeedOrder, FeedQueryDto, FeedType } from './dto/feed-query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { Post } from './entities/post.entity';
 import { decodeFeedCursor, encodeFeedCursor } from './feed-cursor';
+import { MentionsService } from './mentions.service';
 
 // Sentinel meaning "the filter matched nothing, return an empty page".
 const EMPTY_FEED = Symbol('EMPTY_FEED');
@@ -45,6 +46,8 @@ export class PostsService {
     @InjectRepository(Stock)
     private readonly stocksRepository: Repository<Stock>,
     private readonly followsService: FollowsService,
+    private readonly mentionsService: MentionsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(authorId: string, dto: CreatePostDto): Promise<Post> {
@@ -73,17 +76,31 @@ export class PostsService {
       }
     }
 
-    const post = this.postsRepository.create({
+    const mentionedUserIds = await this.mentionsService.resolveIds(
       authorId,
-      title: dto.title,
-      body: dto.body,
-      imageUrl: dto.imageUrl ?? null,
-      links: dto.links ?? [],
-      sectorId: dto.sectorId ?? null,
-      stockId: dto.stockId ?? null,
-    });
+      dto.mentionedUserIds,
+    );
 
-    const saved = await this.postsRepository.save(post);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const posts = manager.getRepository(Post);
+      const post = await posts.save(
+        posts.create({
+          authorId,
+          title: dto.title,
+          body: dto.body,
+          imageUrl: dto.imageUrl ?? null,
+          links: dto.links ?? [],
+          sectorId: dto.sectorId ?? null,
+          stockId: dto.stockId ?? null,
+        }),
+      );
+      await this.mentionsService.replacePostMentions(
+        post.id,
+        mentionedUserIds,
+        manager,
+      );
+      return post;
+    });
     return this.findOne(saved.id);
   }
 
@@ -95,7 +112,9 @@ export class PostsService {
     if (!post) {
       throw new NotFoundException(`Post ${id} not found`);
     }
-    return this.stripAuthor(post);
+    this.stripAuthor(post);
+    await this.mentionsService.attachToPosts([post]);
+    return post;
   }
 
   async update(id: string, actorId: string, dto: UpdatePostDto): Promise<Post> {
@@ -104,6 +123,8 @@ export class PostsService {
     if (post.authorId !== actorId) {
       throw new ForbiddenException('You can only edit your own posts');
     }
+
+    const { mentionedUserIds: mentionedUserIdsDto, ...fields } = dto;
 
     if (dto.sectorId) {
       const sectorExists = await this.sectorsRepository.existsBy({
@@ -123,13 +144,29 @@ export class PostsService {
       }
     }
 
-    for (const [key, value] of Object.entries(dto)) {
+    for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) {
         (post as unknown as Record<string, unknown>)[key] = value;
       }
     }
 
-    await this.postsRepository.save(post);
+    const mentionedUserIds =
+      mentionedUserIdsDto === undefined
+        ? undefined
+        : await this.mentionsService.resolveIds(actorId, mentionedUserIdsDto);
+
+    delete (post as { mentions?: unknown }).mentions;
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Post).save(post);
+      if (mentionedUserIds !== undefined) {
+        await this.mentionsService.replacePostMentions(
+          id,
+          mentionedUserIds,
+          manager,
+        );
+      }
+    });
     return this.findOne(id);
   }
 
@@ -208,6 +245,7 @@ export class PostsService {
     const rows = await qb.getMany();
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit).map((post) => this.stripAuthor(post));
+    await this.mentionsService.attachToPosts(items);
     const last = items[items.length - 1];
     return {
       items,

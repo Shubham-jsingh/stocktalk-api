@@ -10,6 +10,7 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { Comment } from './entities/comment.entity';
 import { Post } from './entities/post.entity';
+import { MentionsService } from './mentions.service';
 import { Paginated } from '../common/types/paginated';
 
 export interface CommentWithReplies {
@@ -26,6 +27,7 @@ export class CommentsService {
     private readonly postsRepository: Repository<Post>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly mentionsService: MentionsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -51,7 +53,12 @@ export class CommentsService {
       }
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const mentionedUserIds = await this.mentionsService.resolveIds(
+      authorId,
+      dto.mentionedUserIds,
+    );
+
+    const created = await this.dataSource.transaction(async (manager) => {
       const comments = manager.getRepository(Comment);
       const saved = await comments.save(
         comments.create({
@@ -60,6 +67,12 @@ export class CommentsService {
           body: dto.body,
           parentId: dto.parentCommentId ?? null,
         }),
+      );
+
+      await this.mentionsService.replaceCommentMentions(
+        saved.id,
+        mentionedUserIds,
+        manager,
       );
 
       // Maintain denormalized counters.
@@ -80,8 +93,11 @@ export class CommentsService {
         where: { id: saved.id },
         relations: { author: true },
       });
-      return this.stripAuthor(created);
+      return created;
     });
+    this.stripAuthor(created);
+    await this.mentionsService.attachToComments([created]);
+    return created;
   }
 
   // Returns top-level comments (paginated) for a post, each with its replies.
@@ -109,11 +125,13 @@ export class CommentsService {
         })
       : [];
 
+    const allComments = [...topLevel, ...replies];
+    allComments.forEach((comment) => this.stripAuthor(comment));
+    await this.mentionsService.attachToComments(allComments);
+
     const items: CommentWithReplies[] = topLevel.map((comment) => ({
-      comment: this.stripAuthor(comment),
-      replies: replies
-        .filter((reply) => reply.parentId === comment.id)
-        .map((reply) => this.stripAuthor(reply)),
+      comment,
+      replies: replies.filter((reply) => reply.parentId === comment.id),
     }));
 
     return {

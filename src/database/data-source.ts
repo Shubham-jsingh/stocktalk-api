@@ -6,7 +6,9 @@ import { SectorFollow } from '../follows/entities/sector-follow.entity';
 import { StockFollow } from '../follows/entities/stock-follow.entity';
 import { UserFollow } from '../follows/entities/user-follow.entity';
 import { Comment } from '../posts/entities/comment.entity';
+import { CommentMention } from '../posts/entities/comment-mention.entity';
 import { PostReaction } from '../posts/entities/post-reaction.entity';
+import { PostMention } from '../posts/entities/post-mention.entity';
 import { Post } from '../posts/entities/post.entity';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
@@ -40,8 +42,10 @@ export default new DataSource({
     StockFollow,
     SectorFollow,
     Post,
+    PostMention,
     PostReaction,
     Comment,
+    CommentMention,
   ],
   migrations: [migrationsDir],
 });

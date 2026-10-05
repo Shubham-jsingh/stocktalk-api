@@ -42,4 +42,10 @@ export class UpdatePostDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   stockId?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  mentionedUserIds?: string[];
 }

@@ -12,7 +12,7 @@ Production must use **`DB_SYNCHRONIZE=false`**. Schema changes go through TypeOR
 
 Migrations are **not** executed automatically on deploy today. Run them **before** deploying code that depends on new columns.
 
-Latest migration: `1757000000000-MoveAboutMarketCapToStocks` — moves `about` and `market_cap` from `sectors` to `stocks`. Run `175680` and `175690` first if they are not already applied.
+Latest migration: `1757100000000-PostAndCommentMentions` — `post_mentions` and `comment_mentions`. Run earlier migrations first if they are not already applied.
 
 ---
 
