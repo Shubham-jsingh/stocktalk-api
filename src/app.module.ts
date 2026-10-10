@@ -10,9 +10,12 @@ import { SectorFollow } from './follows/entities/sector-follow.entity';
 import { StockFollow } from './follows/entities/stock-follow.entity';
 import { UserFollow } from './follows/entities/user-follow.entity';
 import { FollowsModule } from './follows/follows.module';
+import { DeviceToken } from './notifications/entities/device-token.entity';
+import { Notification } from './notifications/entities/notification.entity';
 import { Comment } from './posts/entities/comment.entity';
 import { PostReaction } from './posts/entities/post-reaction.entity';
 import { Post } from './posts/entities/post.entity';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PostsModule } from './posts/posts.module';
 import { Sector } from './stocks/entities/sector.entity';
 import { Stock } from './stocks/entities/stock.entity';
@@ -54,6 +57,8 @@ import { UsersModule } from './users/users.module';
             Post,
             PostReaction,
             Comment,
+            Notification,
+            DeviceToken,
           ],
           synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
         };
@@ -65,6 +70,7 @@ import { UsersModule } from './users/users.module';
     StocksModule,
     FollowsModule,
     PostsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
