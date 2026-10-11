@@ -2,9 +2,6 @@ import 'reflect-metadata';
 import { FeedOrder, FeedType } from './dto/feed-query.dto';
 import { PostsService } from './posts.service';
 
-// Keep firebase-admin (ESM deps) out of the unit test.
-jest.mock('../notifications/notifications.service', () => ({ NotificationsService: class {} }));
-
 function queryBuilder(rows: unknown[]) {
   const qb = {
     leftJoinAndSelect: jest.fn(),
@@ -39,7 +36,6 @@ describe('PostsService feed', () => {
     sectorsRepository as never,
     stocksRepository as never,
     followsService as never,
-    { onPostCreated: jest.fn() } as never,
   );
 
   const query = { limit: 10, order: FeedOrder.DESC };

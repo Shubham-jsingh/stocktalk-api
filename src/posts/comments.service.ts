@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
-import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/entities/user.entity';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -28,7 +27,6 @@ export class CommentsService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly dataSource: DataSource,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(postId: string, authorId: string, dto: CreateCommentDto): Promise<Comment> {
@@ -53,7 +51,7 @@ export class CommentsService {
       }
     }
 
-    const created = await this.dataSource.transaction(async (manager) => {
+    return this.dataSource.transaction(async (manager) => {
       const comments = manager.getRepository(Comment);
       const saved = await comments.save(
         comments.create({
@@ -84,10 +82,6 @@ export class CommentsService {
       });
       return this.stripAuthor(created);
     });
-
-    // After commit, so the alert never points at a rolled-back comment.
-    this.notificationsService.onCommentCreated(created);
-    return created;
   }
 
   // Returns top-level comments (paginated) for a post, each with its replies.
