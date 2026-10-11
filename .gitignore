@@ -25,7 +25,5 @@ npm-debug.log*
 
 # Tests
 /coverage
-/postman
 test/prompts.md
-.gitignore
 test/project_dta_commnd.md

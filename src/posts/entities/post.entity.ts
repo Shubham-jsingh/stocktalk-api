@@ -11,6 +11,7 @@ import {
 import { Sector } from '../../stocks/entities/sector.entity';
 import { Stock } from '../../stocks/entities/stock.entity';
 import { User } from '../../users/entities/user.entity';
+import { MentionUser } from '../mention-user';
 
 @Entity('posts')
 @Index(['createdAt', 'id'])
@@ -75,4 +76,7 @@ export class Post {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  // Loaded by MentionsService; not a database column.
+  mentions?: MentionUser[];
 }

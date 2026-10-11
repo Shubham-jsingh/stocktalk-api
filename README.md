@@ -403,13 +403,15 @@ feeds and "how many likes" reads never need aggregate queries.
 ```bash
 # Create a post (author is the Firebase user).
 # Optional tags: sectorId, stockId — either, both, or neither.
+# Optional mentions: mentionedUserIds (Firebase user ids, max 3 unique, cannot include yourself).
 curl -X POST http://localhost:3000/posts \
   -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
-  -d '{"title":"NVDA earnings","body":"Strong quarter.",
+  -d '{"title":"NVDA earnings","body":"Strong quarter @trader_joe",
        "imageUrl":"https://img.example.com/n.png",
        "links":["https://example.com/a"],
-       "sectorId":"<sectorId>","stockId":"<stockId>"}'
+       "sectorId":"<sectorId>","stockId":"<stockId>",
+       "mentionedUserIds":["<firebase-uid>"]}'
 
 # Get one post
 curl http://localhost:3000/posts/<postId>
@@ -448,7 +450,9 @@ Response when the followed feed has matches:
 }
 ```
 
-`nextCursor` is `null` on the last page. Author objects never include `password`.
+`nextCursor` is `null` on the last page. Author objects never include `password`. Each post includes `mentions`: `{ id, username, fullName, profilePhotoUrl }[]` (empty if nobody was tagged).
+
+Resolve mention targets with `GET /users/search?q=` (min 3 characters), then send their `id` values as `mentionedUserIds`. Duplicate ids are ignored. More than **3 unique** ids returns `400`. Tagging yourself returns `400`. An unknown id returns `404`. Omit `mentionedUserIds` on `PATCH` to leave mentions unchanged; send `[]` to clear them.
 
 Response when `feed=following` has nothing to show (no follows, or no posts for those follows):
 
@@ -489,7 +493,7 @@ curl -X DELETE http://localhost:3000/posts/<postId>/reaction -H "Authorization: 
 curl -X POST http://localhost:3000/posts/<postId>/comments \
   -H "Authorization: Bearer <firebase-id-token>" \
   -H "Content-Type: application/json" \
-  -d '{"body":"Great call!"}'
+  -d '{"body":"Great call!","mentionedUserIds":["<firebase-uid>"]}'
 
 # Reply to a top-level comment (pass parentCommentId)
 curl -X POST http://localhost:3000/posts/<postId>/comments \
@@ -501,6 +505,8 @@ curl -X POST http://localhost:3000/posts/<postId>/comments \
 # List top-level comments (paginated), each with its replies
 curl "http://localhost:3000/posts/<postId>/comments?page=1&limit=10"
 ```
+
+Each comment and reply includes `mentions` (same shape as on posts). Use `GET /users/search?q=` for the @ picker, then pass `mentionedUserIds`. Same rules as posts: max 3 unique users, no self-mention, unknown ids are `404`.
 
 ### Create a user (minimal) with curl
 
@@ -578,6 +584,7 @@ users/stocks/sectors.follower_count — denormalized follow counts
 stocks.about, stocks.market_cap — company description and USD market cap
 post_reactions — one (user, post) row, type = like | dislike
 comments     — post -> comment, optional parent (one level of replies)
+post_mentions / comment_mentions — who was tagged on a post or comment
 ```
 
 ---
@@ -798,6 +805,7 @@ New migration files:
 - `src/database/migrations/1756800000000-StockSectorsAndFollowerCounts.ts`
 - `src/database/migrations/1756900000000-FollowTablesAndFeedIndexes.ts` — drops mock `follows` rows, creates `user_follows` / `stock_follows` / `sector_follows`, and adds feed indexes on `posts` and `comments`
 - `src/database/migrations/1757000000000-MoveAboutMarketCapToStocks.ts` — moves `about` and `market_cap` from `sectors` to `stocks`
+- `src/database/migrations/1757100000000-PostAndCommentMentions.ts` — `post_mentions` and `comment_mentions`
 
 - `stock_sectors` (`stock_id`, `sector_id`) and copies existing `stocks.sector_id`
 - `stocks.about`, `stocks.market_cap`

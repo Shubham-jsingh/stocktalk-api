@@ -11,7 +11,9 @@ import { StockFollow } from './follows/entities/stock-follow.entity';
 import { UserFollow } from './follows/entities/user-follow.entity';
 import { FollowsModule } from './follows/follows.module';
 import { Comment } from './posts/entities/comment.entity';
+import { CommentMention } from './posts/entities/comment-mention.entity';
 import { PostReaction } from './posts/entities/post-reaction.entity';
+import { PostMention } from './posts/entities/post-mention.entity';
 import { Post } from './posts/entities/post.entity';
 import { PostsModule } from './posts/posts.module';
 import { Sector } from './stocks/entities/sector.entity';
@@ -52,8 +54,10 @@ import { UsersModule } from './users/users.module';
             StockFollow,
             SectorFollow,
             Post,
+            PostMention,
             PostReaction,
             Comment,
+            CommentMention,
           ],
           synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
         };

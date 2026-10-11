@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { MentionUser } from '../mention-user';
 import { Post } from './post.entity';
 
 // Comments are at most one level deep: a comment is either top-level
@@ -55,4 +56,7 @@ export class Comment {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  // Loaded by MentionsService; not a database column.
+  mentions?: MentionUser[];
 }

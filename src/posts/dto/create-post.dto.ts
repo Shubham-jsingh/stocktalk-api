@@ -37,4 +37,10 @@ export class CreatePostDto {
   @IsOptional()
   @IsUUID()
   stockId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  mentionedUserIds?: string[];
 }

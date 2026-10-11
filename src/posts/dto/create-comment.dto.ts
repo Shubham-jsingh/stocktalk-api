@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsOptional,
   IsString,
   IsUUID,
@@ -15,4 +17,10 @@ export class CreateCommentDto {
   @IsOptional()
   @IsUUID()
   parentCommentId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  mentionedUserIds?: string[];
 }
