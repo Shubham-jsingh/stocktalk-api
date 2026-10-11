@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
@@ -29,6 +30,7 @@ export class FollowsService {
     private readonly stocksRepository: Repository<Stock>,
     @InjectRepository(Sector)
     private readonly sectorsRepository: Repository<Sector>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async followStock(userId: string, stockId: string): Promise<StockFollow> {
@@ -93,6 +95,7 @@ export class FollowsService {
       { followerId: userId, followeeId: targetUserId },
       'users',
       targetUserId,
+      () => this.notificationsService.onUserFollowed(userId, targetUserId),
     );
   }
 
@@ -181,6 +184,7 @@ export class FollowsService {
     keys: object,
     countTable: 'users' | 'stocks' | 'sectors',
     countId: string,
+    onCreated?: () => void,
   ): Promise<T> {
     const existing = await repo.findOne({ where: keys as never });
     if (existing) {
@@ -188,6 +192,7 @@ export class FollowsService {
     }
     const saved = await repo.save(repo.create(keys as never));
     await this.adjustFollowerCount(repo, countTable, countId, 1);
+    onCreated?.();
     return saved as T;
   }
 
