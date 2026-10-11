@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FollowsModule } from '../follows/follows.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
@@ -30,6 +31,7 @@ import { ReactionsService } from './reactions.service';
       Stock,
     ]),
     FollowsModule,
+    NotificationsModule,
   ],
   controllers: [PostsController, ReactionsController, CommentsController],
   providers: [PostsService, ReactionsService, CommentsService, MentionsService],

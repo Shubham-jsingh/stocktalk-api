@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/entities/user.entity';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -29,6 +30,7 @@ export class CommentsService {
     private readonly usersRepository: Repository<User>,
     private readonly mentionsService: MentionsService,
     private readonly dataSource: DataSource,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(postId: string, authorId: string, dto: CreateCommentDto): Promise<Comment> {
@@ -97,6 +99,9 @@ export class CommentsService {
     });
     this.stripAuthor(created);
     await this.mentionsService.attachToComments([created]);
+
+    // After commit, so the alert never points at a rolled-back comment.
+    this.notificationsService.onCommentCreated(created);
     return created;
   }
 

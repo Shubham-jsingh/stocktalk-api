@@ -5,6 +5,8 @@ import { DataSource } from 'typeorm';
 import { SectorFollow } from '../follows/entities/sector-follow.entity';
 import { StockFollow } from '../follows/entities/stock-follow.entity';
 import { UserFollow } from '../follows/entities/user-follow.entity';
+import { DeviceToken } from '../notifications/entities/device-token.entity';
+import { Notification } from '../notifications/entities/notification.entity';
 import { Comment } from '../posts/entities/comment.entity';
 import { CommentMention } from '../posts/entities/comment-mention.entity';
 import { PostReaction } from '../posts/entities/post-reaction.entity';
@@ -46,6 +48,8 @@ export default new DataSource({
     PostReaction,
     Comment,
     CommentMention,
+    Notification,
+    DeviceToken,
   ],
   migrations: [migrationsDir],
 });

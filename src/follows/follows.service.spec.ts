@@ -1,5 +1,8 @@
 import { FollowsService } from './follows.service';
 
+// Keep firebase-admin (ESM deps) out of the unit test.
+jest.mock('../notifications/notifications.service', () => ({ NotificationsService: class {} }));
+
 describe('FollowsService follower counts', () => {
   const stockFollows = {
     findOne: jest.fn(),
@@ -21,6 +24,7 @@ describe('FollowsService follower counts', () => {
   const usersRepository = { existsBy: jest.fn(), find: jest.fn() };
   const stocksRepository = { existsBy: jest.fn(), find: jest.fn() };
   const sectorsRepository = { existsBy: jest.fn(), find: jest.fn() };
+  const notificationsService = { onUserFollowed: jest.fn() };
 
   const service = new FollowsService(
     userFollows as never,
@@ -29,6 +33,7 @@ describe('FollowsService follower counts', () => {
     usersRepository as never,
     stocksRepository as never,
     sectorsRepository as never,
+    notificationsService as never,
   );
 
   beforeEach(() => {
@@ -70,5 +75,24 @@ describe('FollowsService follower counts', () => {
       expect.stringContaining('UPDATE "users"'),
       [-1, 'user-2'],
     );
+  });
+
+  it('alerts the followed user only when the follow is new', async () => {
+    userFollows.findOne.mockResolvedValueOnce(null);
+    userFollows.save.mockImplementation(async (row) => row);
+
+    await service.followUser('user-1', 'user-2');
+    expect(notificationsService.onUserFollowed).toHaveBeenCalledWith(
+      'user-1',
+      'user-2',
+    );
+
+    notificationsService.onUserFollowed.mockClear();
+    userFollows.findOne.mockResolvedValueOnce({
+      followerId: 'user-1',
+      followeeId: 'user-2',
+    });
+    await service.followUser('user-1', 'user-2');
+    expect(notificationsService.onUserFollowed).not.toHaveBeenCalled();
   });
 });

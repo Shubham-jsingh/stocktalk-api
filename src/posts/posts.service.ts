@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 import { FeedPage } from '../common/types/feed-page';
 import { FollowsService } from '../follows/follows.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
@@ -48,6 +49,7 @@ export class PostsService {
     private readonly followsService: FollowsService,
     private readonly mentionsService: MentionsService,
     private readonly dataSource: DataSource,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(authorId: string, dto: CreatePostDto): Promise<Post> {
@@ -101,6 +103,8 @@ export class PostsService {
       );
       return post;
     });
+    // After commit, so followers are never alerted about a rolled-back post.
+    this.notificationsService.onPostCreated(saved);
     return this.findOne(saved.id);
   }
 

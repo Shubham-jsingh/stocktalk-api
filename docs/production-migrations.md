@@ -12,7 +12,7 @@ Production must use **`DB_SYNCHRONIZE=false`**. Schema changes go through TypeOR
 
 Migrations are **not** executed automatically on deploy today. Run them **before** deploying code that depends on new columns.
 
-Latest migration: `1757100000000-PostAndCommentMentions` — `post_mentions` and `comment_mentions`. Run earlier migrations first if they are not already applied.
+Latest migration: `1757400000000-AddNotificationSeenAt` — adds `notifications.seen_at` (Alerts badge). Order: `1757100000000-PostAndCommentMentions` (`post_mentions`, `comment_mentions`), then `1757300000000-AddNotifications` (`notifications`, `device_tokens`), then `1757400000000-AddNotificationSeenAt`. Run earlier migrations first if they are not already applied.
 
 ---
 
