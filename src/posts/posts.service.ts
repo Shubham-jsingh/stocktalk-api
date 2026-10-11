@@ -8,7 +8,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { FeedPage } from '../common/types/feed-page';
 import { FollowsService } from '../follows/follows.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
 import { User } from '../users/entities/user.entity';
@@ -46,7 +45,6 @@ export class PostsService {
     @InjectRepository(Stock)
     private readonly stocksRepository: Repository<Stock>,
     private readonly followsService: FollowsService,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(authorId: string, dto: CreatePostDto): Promise<Post> {
@@ -86,7 +84,6 @@ export class PostsService {
     });
 
     const saved = await this.postsRepository.save(post);
-    this.notificationsService.onPostCreated(saved);
     return this.findOne(saved.id);
   }
 

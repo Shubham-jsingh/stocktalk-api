@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Sector } from '../stocks/entities/sector.entity';
 import { Stock } from '../stocks/entities/stock.entity';
@@ -20,7 +19,6 @@ import { FollowsService } from './follows.service';
       Stock,
       Sector,
     ]),
-    NotificationsModule,
   ],
   controllers: [FollowsController],
   providers: [FollowsService],
