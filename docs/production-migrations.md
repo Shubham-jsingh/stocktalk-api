@@ -12,7 +12,7 @@ Production must use **`DB_SYNCHRONIZE=false`**. Schema changes go through TypeOR
 
 Migrations are **not** executed automatically on deploy today. Run them **before** deploying code that depends on new columns.
 
-Latest migration: `1757400000000-AddNotificationSeenAt` — adds `notifications.seen_at` (Alerts badge). Order: `1757100000000-PostAndCommentMentions` (`post_mentions`, `comment_mentions`), then `1757300000000-AddNotifications` (`notifications`, `device_tokens`), then `1757400000000-AddNotificationSeenAt`. Run earlier migrations first if they are not already applied.
+Latest migration: `1757500000000-AddUserSoftDelete` — `users.deletion_status`, `deletion_requested_at`, `scheduled_deletion_date`, and partial unique indexes on `email` and `username`. Before that: `1757400000000-AddNotificationSeenAt` (`notifications.seen_at`). Order: `1757100000000-PostAndCommentMentions` (`post_mentions`, `comment_mentions`), then `1757300000000-AddNotifications` (`notifications`, `device_tokens`), then `1757400000000-AddNotificationSeenAt`, then `1757500000000-AddUserSoftDelete`. Run earlier migrations first if they are not already applied.
 
 ---
 

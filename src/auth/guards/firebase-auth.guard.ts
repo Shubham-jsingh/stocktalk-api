@@ -45,12 +45,15 @@ export class FirebaseAuthGuard implements CanActivate {
 
       const email = decoded.email ?? null;
       const roles = this.extractRoles(decoded as DecodedIdToken & Record<string, unknown>);
+      const authTime =
+        typeof decoded.auth_time === 'number' ? decoded.auth_time : undefined;
       const user = await this.usersService.upsertFromFirebase({
         uid,
         email,
         fullName: typeof decoded.name === 'string' ? decoded.name : null,
         profilePhotoUrl:
           typeof decoded.picture === 'string' ? decoded.picture : null,
+        authTime,
       });
 
       request.user = {
@@ -58,6 +61,7 @@ export class FirebaseAuthGuard implements CanActivate {
         email,
         roles,
         user,
+        authTime,
       };
       return true;
     } catch (error) {

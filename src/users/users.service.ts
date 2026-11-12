@@ -7,13 +7,15 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { ILike, Repository } from 'typeorm';
+import { ILike, Not, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { User } from './entities/user.entity';
+import { DeletionStatus, User } from './entities/user.entity';
 
 export type SafeUser = Omit<User, 'password'>;
+
+const DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsersService {
@@ -25,8 +27,14 @@ export class UsersService {
   async create(createUserDto: CreateUserDto): Promise<SafeUser> {
     const existing = await this.usersRepository.findOne({
       where: [
-        { email: createUserDto.email },
-        { username: createUserDto.username },
+        {
+          email: createUserDto.email,
+          deletionStatus: Not(DeletionStatus.DELETED),
+        },
+        {
+          username: createUserDto.username,
+          deletionStatus: Not(DeletionStatus.DELETED),
+        },
       ],
     });
 
@@ -43,6 +51,7 @@ export class UsersService {
       ...profile,
       id: randomUUID(),
       password: passwordHash,
+      deletionStatus: DeletionStatus.ACTIVE,
     });
 
     const saved = await this.usersRepository.save(user);
@@ -50,7 +59,10 @@ export class UsersService {
   }
 
   async isUsernameAvailable(username: string): Promise<boolean> {
-    const taken = await this.usersRepository.existsBy({ username });
+    const taken = await this.usersRepository.existsBy({
+      username,
+      deletionStatus: Not(DeletionStatus.DELETED),
+    });
     return !taken;
   }
 
@@ -63,6 +75,8 @@ export class UsersService {
     email: string | null;
     fullName?: string | null;
     profilePhotoUrl?: string | null;
+    /** Firebase `auth_time` in seconds. Changes on sign-in, not on token refresh. */
+    authTime?: number;
   }): Promise<SafeUser> {
     if (!data.email) {
       throw new UnauthorizedException('Firebase token is missing email');
@@ -73,6 +87,11 @@ export class UsersService {
     });
 
     if (existing) {
+      if (existing.deletionStatus === DeletionStatus.DELETED) {
+        throw new UnauthorizedException('This account has been deleted');
+      }
+
+      this.restoreIfSignedInAgain(existing, data.authTime);
       if (data.fullName && !existing.fullName) {
         existing.fullName = data.fullName;
       }
@@ -91,6 +110,7 @@ export class UsersService {
       fullName: data.fullName ?? null,
       profilePhotoUrl: data.profilePhotoUrl ?? null,
       password: null,
+      deletionStatus: DeletionStatus.ACTIVE,
     });
 
     const saved = await this.usersRepository.save(created);
@@ -99,17 +119,53 @@ export class UsersService {
 
   async findOne(id: string): Promise<SafeUser> {
     const user = await this.usersRepository.findOne({ where: { id } });
-    if (!user) {
+    if (!user || user.deletionStatus === DeletionStatus.DELETED) {
       throw new NotFoundException(`User ${id} not found`);
     }
     return this.stripPassword(user);
+  }
+
+  /**
+   * Starts the 30-day grace period. A later sign-in (new Firebase auth_time)
+   * cancels it. Calling this again does not move the scheduled date.
+   */
+  async requestDeletion(id: string, authTime?: number): Promise<SafeUser> {
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user || user.deletionStatus === DeletionStatus.DELETED) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
+    if (user.deletionStatus === DeletionStatus.PENDING_DELETION) {
+      return this.stripPassword(user);
+    }
+
+    // Never earlier than this token's auth_time, so the current session
+    // (same auth_time) cannot satisfy the "signed in again" check.
+    const now = Date.now();
+    const authMs = authTime != null ? authTime * 1000 : now;
+    const requestedAt = new Date(Math.max(now, authMs));
+    user.deletionStatus = DeletionStatus.PENDING_DELETION;
+    user.deletionRequestedAt = requestedAt;
+    user.scheduledDeletionDate = new Date(
+      requestedAt.getTime() + DELETION_GRACE_MS,
+    );
+    const saved = await this.usersRepository.save(user);
+    return this.stripPassword(saved);
   }
 
   // Prefix search by username or display name (fullName). Caller enforces min length.
   async searchUsers(query: string): Promise<SafeUser[]> {
     const term = `${query.trim()}%`;
     const users = await this.usersRepository.find({
-      where: [{ username: ILike(term) }, { fullName: ILike(term) }],
+      where: [
+        {
+          username: ILike(term),
+          deletionStatus: Not(DeletionStatus.DELETED),
+        },
+        {
+          fullName: ILike(term),
+          deletionStatus: Not(DeletionStatus.DELETED),
+        },
+      ],
       order: { username: 'ASC' },
       take: 20,
     });
@@ -141,6 +197,28 @@ export class UsersService {
 
   toSafeUser(user: User): SafeUser {
     return this.stripPassword(user);
+  }
+
+  /**
+   * Firebase `auth_time` stays put across token refresh and moves only when
+   * the user signs in again. Restore only after that new sign-in, so the
+   * request that starts deletion does not immediately cancel itself.
+   */
+  private restoreIfSignedInAgain(user: User, authTimeSeconds?: number): boolean {
+    if (user.deletionStatus !== DeletionStatus.PENDING_DELETION) {
+      return false;
+    }
+    if (!user.deletionRequestedAt || authTimeSeconds == null) {
+      return false;
+    }
+    if (authTimeSeconds * 1000 <= user.deletionRequestedAt.getTime()) {
+      return false;
+    }
+
+    user.deletionStatus = DeletionStatus.ACTIVE;
+    user.deletionRequestedAt = null;
+    user.scheduledDeletionDate = null;
+    return true;
   }
 
   private async generateUniqueUsername(email: string): Promise<string> {
