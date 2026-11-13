@@ -2,9 +2,16 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+export enum DeletionStatus {
+  ACTIVE = 'ACTIVE',
+  PENDING_DELETION = 'PENDING_DELETION',
+  DELETED = 'DELETED',
+}
 
 export enum InvestingStyle {
   VALUE = 'value',
@@ -18,16 +25,26 @@ export enum InvestingStyle {
   CRYPTO = 'crypto',
 }
 
+// Full UNIQUE on email/username would block reusing those values after a
+// tombstone. Uniqueness applies only while the account is not DELETED.
+@Index('UQ_users_email_not_deleted', ['email'], {
+  unique: true,
+  where: `"deletion_status" <> 'DELETED'`,
+})
+@Index('UQ_users_username_not_deleted', ['username'], {
+  unique: true,
+  where: `"deletion_status" <> 'DELETED'`,
+})
 @Entity('users')
 export class User {
   // Firebase Auth UID. This is both the Firebase identity and our primary key.
   @PrimaryColumn({ type: 'varchar' })
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   username: string;
 
-  @Column({ unique: true })
+  @Column()
   email: string;
 
   // Hashed password for optional email/password sign-up. Null for Firebase accounts.
@@ -66,6 +83,28 @@ export class User {
   // Denormalized so "how many users follow this user" is a single column read.
   @Column({ name: 'follower_count', type: 'int', default: 0 })
   followerCount: number;
+
+  @Column({
+    name: 'deletion_status',
+    type: 'varchar',
+    length: 32,
+    default: DeletionStatus.ACTIVE,
+  })
+  deletionStatus: DeletionStatus;
+
+  @Column({
+    name: 'deletion_requested_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  deletionRequestedAt: Date | null;
+
+  @Column({
+    name: 'scheduled_deletion_date',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  scheduledDeletionDate: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

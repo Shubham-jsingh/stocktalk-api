@@ -167,6 +167,7 @@ stocktalk-api running on http://localhost:3000
 | `GET    /users/search?q=`                      | Search users by username or name (prefix, min 3 chars) |
 | `GET    /users/:id`                            | Get a user's details (includes `followerCount`) |
 | `PATCH  /users/me`                             | Edit the logged-in user's profile        |
+| `POST   /users/me/deletion`                    | Start the 30-day account deletion grace period |
 | `GET    /stocks?page=&limit=&sectorId=&sector=` | Paginated stocks (optional sector filter) |
 | `GET    /stocks/:id`                           | Single stock (includes sector)           |
 | `GET    /stocks/favourites?page=&limit=`       | Paginated favourite stocks               |
@@ -216,8 +217,8 @@ stocktalk-api running on http://localhost:3000
 
 Validation rules:
 
-- `username`: 3–20 chars, letters/numbers/underscore only, unique (required)
-- `email`: valid email, unique (required)
+- `username`: 3–20 chars, letters/numbers/underscore only, unique among accounts that are not `DELETED` (required)
+- `email`: valid email, unique among accounts that are not `DELETED` (required)
 - `password`: 8–64 chars, stored hashed, never returned (required)
 - `fullName`: up to 100 chars (optional)
 - `investingStyle`: one of `value`, `growth`, `dividend`, `day_trading`, `swing_trading`, `long_term`, `index`, `options`, `crypto` (optional)
@@ -278,6 +279,29 @@ curl -X PATCH http://localhost:3000/users/me \
 ```
 
 Returns `200` with the updated user.
+
+#### Request account deletion — `POST /users/me/deletion`
+
+Starts a **30-day** grace period for the Firebase user. No request body.
+
+```bash
+curl -X POST http://localhost:3000/users/me/deletion \
+  -H "Authorization: Bearer <firebase-id-token>"
+```
+
+Returns `200` with the user. New fields:
+
+| Field | Values |
+| ----- | ------ |
+| `deletionStatus` | `ACTIVE` (default), `PENDING_DELETION`, or `DELETED` |
+| `deletionRequestedAt` | When deletion was requested, or `null` |
+| `scheduledDeletionDate` | 30 days after the request, or `null` |
+
+The first call sets `deletionStatus` to `PENDING_DELETION`. Calling it again while the account is already pending returns the same schedule and does not move the date. Posts, comments, and follows stay in place during the grace period. The user row is not removed.
+
+Signing in again cancels it. Firebase `auth_time` changes on a new sign-in and stays the same when the ID token is only refreshed, so the session that requested deletion stays pending. The next sign-in sets `deletionStatus` back to `ACTIVE` and clears both timestamps. `GET /auth/me` then returns the restored user. An account already marked `DELETED` cannot sign in.
+
+`GET /users/:id` and `GET /users/search` omit `DELETED` accounts (`404` / no match). A `DELETED` username or email can be used again.
 
 ### Stocks & sectors (predefined, seeded on startup)
 
@@ -532,9 +556,9 @@ stocktalk-api/
 │   │   │   ├── create-user.dto.ts   # create payload + validation
 │   │   │   └── update-user.dto.ts   # profile edit payload (partial)
 │   │   ├── entities/
-│   │   │   └── user.entity.ts       # "users" table + InvestingStyle enum
-│   │   ├── users.controller.ts      # POST / GET :id / PATCH :id
-│   │   ├── users.service.ts         # hashing, create, find, update
+│   │   │   └── user.entity.ts       # "users" table, InvestingStyle, deletion status
+│   │   ├── users.controller.ts      # POST / GET :id / PATCH me / POST me/deletion
+│   │   ├── users.service.ts         # hashing, create, find, update, soft delete
 │   │   └── users.module.ts
 │   ├── stocks/
 │   │   ├── entities/

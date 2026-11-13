@@ -52,4 +52,9 @@ export class UsersController {
   update(@GetUser() auth: AuthUser, @Body() updateUserDto: UpdateUserDto) {
     return this.usersService.update(auth.uid, auth.uid, updateUserDto);
   }
+
+  @Post('me/deletion')
+  requestDeletion(@GetUser() auth: AuthUser) {
+    return this.usersService.requestDeletion(auth.uid, auth.authTime);
+  }
 }

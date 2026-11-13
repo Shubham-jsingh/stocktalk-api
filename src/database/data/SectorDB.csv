@@ -1,0 +1,60 @@
+Sector_ID,Sector_Name,Sector_Slug
+1,Diversified,diversified
+2,Data Center,data center
+3,Capital Goods,capital goods
+4,Capital Market,capital market
+5,Telecom,telecom
+6,Govt Banks,govt banks
+7,IT,it
+8,Infrastructure,infrastructure
+9,Private Banks,private banks
+10,FMCG,fmcg
+11,Pharmaceuticals,pharmaceuticals
+12,Pharma (CDMO / CRDMO ),pharma (cdmo / crdmo )
+13,Jewellery,jewellery
+14,Logistics,logistics
+15,4-Wheelers,4-wheelers
+16,Commercial Vehicles,commercial vehicles
+17,Cigrattes,cigrattes
+18,Cement,cement
+19,Defence,defence
+20,Energy (Thermal),energy (thermal)
+21,Start-Up,start-up
+22,Insurance,insurance
+23,Metals & Mining,metals & mining
+24,Oil & Gas (Exploration),oil & gas (exploration)
+25,2-Wheelers,2-wheelers
+26,Food & Beverages,food & beverages
+27,Financial Services,financial services
+28,Oil & Gas (Marketing),oil & gas (marketing)
+29,Paint,paint
+30,Semiconductor,semiconductor
+31,Retail (FMCG),retail (fmcg)
+32,Auto-Ancilliaries,auto-ancilliaries
+33,Electronics Manufacturing,electronics manufacturing
+34,Home Appliances,home appliances
+35,Energy (Renewable),energy (renewable)
+36,Tourism,tourism
+37,Real Estate,real estate
+38,Hospitals,hospitals
+39,Wires & Cables,wires & cables
+40,Power Transmission,power transmission
+41,NBFC,nbfc
+42,Oil & Gas (Distribution),oil & gas (distribution)
+43,Small Banks,small banks
+44,Chemicals,chemicals
+45,Fertilizers,fertilizers
+46,Textile,textile
+47,Batteries,batteries
+48,Tyres,tyres
+49,Retail (Fashion),retail (fashion)
+50,Alcohol,alcohol
+51,Pipes (Steel),pipes (steel)
+52,Pipes (Plastic),pipes (plastic)
+53,Railway,railway
+54,Diagnostics (Healthcare),diagnostics (healthcare)
+55,Restaurants,restaurants
+56,Media & Entertainment,media & entertainment
+57,Sugar & Ethanol,sugar & ethanol
+58,Dairy (Milk Products),dairy (milk products)
+59,Water Recycling,water recycling
